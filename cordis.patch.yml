@@ -6,4 +6,4 @@
 # package.json makes the browser half (exports "./client") load in the web GUI.
 - insert:
     - id: dsh-task-board
-      name: dsh-task-board
+      name: dsh-project-tasks

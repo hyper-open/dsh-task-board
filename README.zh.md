@@ -1,4 +1,4 @@
-# dsh-task-board — DSH 项目任务看板
+# dsh-project-tasks — DSH 项目任务看板
 
 [English](README.md) | 中文
 
@@ -21,7 +21,7 @@ bundle 插件：增加一块 **任务看板**——三列看板（**待办 / 进
 ## 安装
 
 ```sh
-dsh plugin --profile web add dsh-task-board
+dsh plugin --profile web add dsh-project-tasks
 ```
 
 重启 `dsh web`（或重开 GUI）并刷新页面，侧边栏出现 **任务看板** 入口。它是 **bundle**

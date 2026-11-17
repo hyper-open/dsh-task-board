@@ -1,4 +1,4 @@
-# dsh-task-board — a project task board for DSH
+# dsh-project-tasks — a project task board for DSH
 
 English | [中文](README.zh.md)
 
@@ -24,7 +24,7 @@ the model and the board share.
 ## Install
 
 ```sh
-dsh plugin --profile web add dsh-task-board
+dsh plugin --profile web add dsh-project-tasks
 ```
 
 Restart `dsh web` (or reopen the GUI) and refresh the page: a **Task board** entry
