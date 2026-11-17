@@ -1,0 +1,91 @@
+{
+  "name": "dsh-task-board",
+  "description": "Project task board for DSH: create tasks that belong to a project (workspace), let an agent pull a project's pending tasks, execute them, and mark them done — a three-column kanban (Todo / In progress / Done) with a host-authoritative task ledger and task_board_* agent tools.",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "author": "hyper",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "task",
+    "taskboard",
+    "kanban",
+    "project",
+    "agent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hyper-open/dsh-task-board.git"
+  },
+  "homepage": "https://github.com/hyper-open/dsh-task-board#readme",
+  "bugs": {
+    "url": "https://github.com/hyper-open/dsh-task-board/issues"
+  },
+  "engines": {
+    "dsh": ">=0.2.0 <0.3.0",
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/index.js.map",
+    "lib/client.js",
+    "lib/client.js.map",
+    "lib/types/**/*.d.ts",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-client-locale": ">=0.2.0-0 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-layout": ">=0.2.0-0 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.0-0 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-renderer": ">=0.2.0-0 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-sidebar": ">=0.2.0-0 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.2.0-0 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-workspace": ">=0.2.0-0 <0.3.0"
+  },
+  "scripts": {
+    "link-deps": "node scripts/link-deps.mjs",
+    "build": "node scripts/build.mjs",
+    "prepare": "node scripts/prepare.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

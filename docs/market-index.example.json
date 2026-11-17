@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "title": { "en": "Example DSH Plugins", "zh": "示例 DSH 插件市场" },
+  "description": {
+    "en": "A sample format-1 market index listing dsh-task-board. Host this JSON and add its URL as a market index in DSH.",
+    "zh": "一个 format-1 示例市场索引，列出 dsh-task-board。托管此 JSON 并把其 URL 加为 DSH 市场索引。"
+  },
+  "metadata": { "categories": { "productivity": { "title": { "en": "Productivity", "zh": "效率" } } }, "labels": { "community": { "title": { "en": "Community", "zh": "社区" } } } },
+  "plugins": [
+    {
+      "name": "dsh-task-board",
+      "title": { "en": "Task board", "zh": "任务看板" },
+      "description": {
+        "en": "Project-scoped task kanban: create tasks that belong to a workspace, and let an agent pull, execute, and complete them via task_board_* tools. Host-authoritative ledger with live SSE updates.",
+        "zh": "按项目归属的任务看板：任务属于某工作区，agent 通过 task_board_* 工具拉取、执行、完成。Host 权威台账，SSE 实时刷新。"
+      },
+      "author": "hyper",
+      "keywords": ["task", "taskboard", "kanban", "project", "agent", "dsh-plugin"],
+      "metadata": { "category": "productivity", "labels": ["community"], "keywords": ["task", "kanban", "project"] },
+      "dist-tags": { "latest": "0.1.0" },
+      "versions": [ { "version": "0.1.0", "publishTimestamp": 1763200000, "source": { "type": "npm" }, "engines": { "dsh": ">=0.2.0 <0.3.0" } } ]
+    }
+  ]
+}

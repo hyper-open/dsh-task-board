@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output — produced by `npm run build` (and by `prepare` on git install).
+# The published npm package ships it via package.json `files`; the git repo is
+# source-only so it is not committed here.
+lib/
+
+# Packed tarballs
+*.tgz
+*.tar.gz
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# The source checkout linked in by scripts/link-deps.mjs is a symlink under
+# node_modules and already ignored; nothing else here should cross-reference it.
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*

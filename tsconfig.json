@@ -1,0 +1,33 @@
+{
+  // Out-of-tree client plugin: compiles `src` against the source checkout's
+  // BUILT `@deepseek-ai/*` declarations (linked into ./node_modules/@deepseek-ai),
+  // never its `src` tree, so the project is self-contained and fast to type-check.
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2024", "DOM", "DOM.Iterable", "ESNext.Disposable"],
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "composite": false,
+    "incremental": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": false,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["node"]
+  },
+  "include": ["src"]
+}
