@@ -75,6 +75,7 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
   const [error, setError] = useState<string | undefined>(undefined)
   const [now, setNow] = useState(() => Date.now())
   const [projectFilter, setProjectFilter] = useState<string>('all')
+  const [priorityFilter, setPriorityFilter] = useState<'all' | TaskPriority>('all')
   const [drafting, setDrafting] = useState(false)
   const [draftProject, setDraftProject] = useState('')
   const [draftTitle, setDraftTitle] = useState('')
@@ -121,9 +122,14 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
   }
 
   const tasks = board?.tasks ?? []
-  const visible = projectFilter === 'all' ? tasks : tasks.filter(task => task.project === projectFilter)
+  const visible = tasks
+    .filter(task => projectFilter === 'all' || task.project === projectFilter)
+    .filter(task => priorityFilter === 'all' || task.priority === priorityFilter)
+  const rank = (p: TaskPriority): number => (p === 'high' ? 2 : p === 'normal' ? 1 : 0)
+  // Highest priority first within each column, then most recently updated.
   const byStatus = (status: TaskStatus): TaskDto[] =>
-    visible.filter(task => task.status === status).sort((a, b) => b.updatedAt - a.updatedAt)
+    visible.filter(task => task.status === status)
+      .sort((a, b) => (rank(b.priority) - rank(a.priority)) || (b.updatedAt - a.updatedAt))
   const autoClaim = board?.autoClaim === true
 
   return (
@@ -138,6 +144,15 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
             <input type="checkbox" className={css.autoInput} checked={autoClaim} onChange={e => { void run(() => setAutoClaim(e.target.checked)) }} />
             <span className={css.autoSwitch} aria-hidden="true" />
             <span className={css.autoLabel}>{t('auto.label')}</span>
+          </label>
+          <label className={css.projectPicker}>
+            <span className={css.projectLabel}>{t('priority.label')}</span>
+            <select className={css.select} value={priorityFilter} onChange={e => { setPriorityFilter(e.target.value as 'all' | TaskPriority) }}>
+              <option value="all">{t('priority.all')}</option>
+              <option value="high">{t('priority.high')}</option>
+              <option value="normal">{t('priority.normal')}</option>
+              <option value="low">{t('priority.low')}</option>
+            </select>
           </label>
           <label className={css.projectPicker}>
             <span className={css.projectLabel}>{t('project.label')}</span>

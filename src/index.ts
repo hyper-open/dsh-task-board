@@ -106,7 +106,7 @@ function resolveProject(store: TaskStore, arg: string): string {
           : '\n    description: (none)'
         return `- ${task.id} [${task.status}] (${task.priority}) ${task.title}${owner}${desc}`
       })
-      return Promise.resolve(`Project ${project} — ${tasks.length} task(s):\n${lines.join('\n')}`)
+      return Promise.resolve(`Project ${project} — ${tasks.length} task(s), highest priority first:\n${lines.join('\n')}`)
     },
   }))
 

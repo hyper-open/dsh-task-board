@@ -23,6 +23,17 @@ function nextId(now: number): string {
   return `t-${now.toString(36)}-${counter.toString(36)}`
 }
 
+/** Rank a priority for sorting (higher = more urgent). */
+export function priorityRank(priority: Task['priority']): number {
+  return priority === 'high' ? 2 : priority === 'normal' ? 1 : 0
+}
+
+/** Order tasks by priority (high first), then most-recently updated. */
+export function byPriorityThenUpdated(a: TaskDto, b: TaskDto): number {
+  const r = priorityRank(b.priority) - priorityRank(a.priority)
+  return r !== 0 ? r : b.updatedAt - a.updatedAt
+}
+
 /** Normalize a project path so the same workspace always buckets together. */
 export function normalizeProject(project: string): string {
   const trimmed = project.trim().replace(/\\/g, '/').replace(/\/+$/, '')
@@ -70,7 +81,7 @@ export class TaskStore {
     let out = this.all()
     if (project !== undefined) out = out.filter(task => task.project === project)
     if (statuses !== undefined) out = out.filter(task => statuses.includes(task.status))
-    return out.sort((a, b) => b.updatedAt - a.updatedAt)
+    return out.sort(byPriorityThenUpdated)
   }
 
   /** Read one task by id. */
