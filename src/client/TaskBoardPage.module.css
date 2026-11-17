@@ -231,6 +231,20 @@
   line-height: 1.45;
   color: var(--dsw-alias-label-secondary);
   word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+/* Hover/focus the card to read the full completion summary. */
+/* Expand ONLY while the pointer is over the summary text itself, so hovering
+   the card's action buttons does not pop it open. */
+.doneSummary:hover,
+.doneSummary:focus-visible {
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  overflow: visible;
 }
 
 .cardActions { display: flex; align-items: center; gap: 6px; }
@@ -290,3 +304,13 @@
 .columnDot[data-status='blocked'] { background: var(--dsw-alias-state-error-primary, #d33); }
 
 .deleteBtn { margin-left: auto; }
+
+/* ---- Archive controls ---- */
+.tabActive { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.columnAction { margin-left: auto; height: 20px; padding: 0 7px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-tertiary); font-size: 10.5px; cursor: pointer; }
+.columnAction:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }
+.moreBtn { margin-top: 4px; align-self: flex-start; height: 26px; padding: 0 10px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 8px; background: transparent; color: var(--dsw-alias-label-tertiary); font-size: 12px; cursor: pointer; }
+.moreBtn:hover { color: var(--dsw-alias-label-secondary); border-style: solid; }
+.archivePane { flex: 1; overflow-y: auto; padding: 16px 28px 40px; max-width: 900px; }
+.archiveHead { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.archiveTitle { margin: 0; font-size: 15px; font-weight: 600; color: var(--dsw-alias-label-secondary); }

@@ -44,7 +44,7 @@ export function normalizeProject(project: string): string {
 export class TaskStore {
   private readonly table
   private rev = 0
-  private autoClaimFlag = false
+  private autoClaimFlag = true
   private listeners = new Set<(state: BoardState) => void>()
 
   /** @param domain - an opened task-board domain. */
@@ -75,13 +75,33 @@ export class TaskStore {
   }
 
   /** List tasks, optionally filtered by project and/or a set of statuses. */
-  list(filter: { project?: string; statuses?: readonly TaskStatus[] } = {}): TaskDto[] {
+  list(filter: { project?: string; statuses?: readonly TaskStatus[]; includeArchived?: boolean } = {}): TaskDto[] {
     const project = filter.project === undefined ? undefined : normalizeProject(filter.project)
     const statuses = filter.statuses
     let out = this.all()
+    // Default: exclude archived tasks (the agent only ever works live tasks).
+    if (filter.includeArchived !== true) out = out.filter(task => task.archived !== true)
     if (project !== undefined) out = out.filter(task => task.project === project)
     if (statuses !== undefined) out = out.filter(task => statuses.includes(task.status))
     return out.sort(byPriorityThenUpdated)
+  }
+
+  /** Archive one task (hidden from the live board, kept in the archive view). */
+  async archive(id: string, now = Date.now()): Promise<TaskDto> {
+    return this.update(id, { archived: true }, now)
+  }
+
+  /** Restore one archived task to the board. */
+  async unarchive(id: string, now = Date.now()): Promise<TaskDto> {
+    return this.update(id, { archived: false }, now)
+  }
+
+  /** Archive every done task (optionally scoped to a project); returns the count. */
+  async archiveAllDone(project?: string, now = Date.now()): Promise<number> {
+    const done = this.all().filter(task => task.status === 'done' && task.archived !== true
+      && (project === undefined || task.project === normalizeProject(project)))
+    for (const task of done) await this.update(task.id, { archived: true }, now)
+    return done.length
   }
 
   /** Read one task by id. */

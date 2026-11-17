@@ -57,6 +57,12 @@ export async function taskAction(id: string, action: NonNullable<UpdateTaskBody[
   return body.task
 }
 
+/** Archive every done task (optionally scoped to a project); returns the count. */
+export async function archiveDone(project?: string): Promise<number> {
+  const body = await unwrap<{ archived: number }>(post('/api/archive-done', project === undefined ? {} : { project }))
+  return body.archived
+}
+
 /** Enable/disable the background auto-claim poller. */
 export async function setAutoClaim(enabled: boolean): Promise<boolean> {
   const body = await unwrap<{ autoClaim: boolean }>(post('/api/auto-claim', { enabled }))

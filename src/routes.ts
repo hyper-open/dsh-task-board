@@ -4,7 +4,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import type { BoardState, CreateTaskBody, DeleteTaskBody, SetAutoClaimBody, UpdateTaskBody } from './types.ts'
+import type { ArchiveDoneBody, BoardState, CreateTaskBody, DeleteTaskBody, SetAutoClaimBody, UpdateTaskBody } from './types.ts'
 import type { TaskStore } from './store.ts'
 
 /** SSE frame for one board change. */
@@ -112,6 +112,8 @@ export function registerTaskBoardRoutes(ctx: Context, store: TaskStore): () => v
       else if (action === 'verify') task = await store.verify(id)
       else if (action === 'reject') task = await store.reject(id)
       else if (action === 'block') task = await store.block(id, blockedReason)
+      else if (action === 'archive') task = await store.archive(id)
+      else if (action === 'unarchive') task = await store.unarchive(id)
       else if (action === 'unblock') task = await store.unblock(id)
       else task = await store.update(id, patch)
       json(res, 200, { ok: true, task })
@@ -128,6 +130,19 @@ export function registerTaskBoardRoutes(ctx: Context, store: TaskStore): () => v
       const body = await readJson<SetAutoClaimBody>(req)
       store.setAutoClaim(body.enabled === true)
       json(res, 200, { ok: true, autoClaim: store.state().autoClaim })
+    } catch (error) {
+      fail(res, 400, error instanceof Error ? error.message : String(error))
+    }
+  })
+
+  // POST /taskboard/api/archive-done — body ArchiveDoneBody (optional project).
+  route('/taskboard/api/archive-done', async (req, res) => {
+    if (req.method !== 'POST') return fail(res, 405, 'method not allowed')
+    if (!sameOrigin(req)) return fail(res, 403, 'cross-origin request refused')
+    try {
+      const body = await readJson<ArchiveDoneBody>(req)
+      const archived = await store.archiveAllDone(typeof body.project === 'string' && body.project !== '' ? body.project : undefined)
+      json(res, 200, { ok: true, archived })
     } catch (error) {
       fail(res, 400, error instanceof Error ? error.message : String(error))
     }

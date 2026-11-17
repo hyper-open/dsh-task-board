@@ -40,6 +40,8 @@ export interface Task {
   readonly blockedFrom?: Exclude<TaskStatus, 'blocked'>
   /** When `status` is `blocked`, an optional reason. */
   readonly blockedReason?: string
+  /** Archived tasks are hidden from the board columns and shown in the archive view. */
+  readonly archived?: boolean
 }
 
 /** Zod schema guarding every durable task record as read/written by the domain. */
@@ -57,6 +59,7 @@ export const taskSchema = z.object({
   doneFiles: z.array(z.string()).optional(),
   blockedFrom: z.enum(['draft', 'ready', 'in_progress', 'review', 'done']).optional(),
   blockedReason: z.string().optional(),
+  archived: z.boolean().optional(),
 })
 
 /** Browser-facing task DTO (identical shape to the durable record). */
@@ -92,12 +95,17 @@ export interface UpdateTaskBody {
   readonly doneFiles?: string[]
   readonly blockedReason?: string
   /** Optional lifecycle action that overrides a plain status patch. */
-  readonly action?: 'start' | 'claim' | 'verify' | 'reject' | 'block' | 'unblock'
+  readonly action?: 'start' | 'claim' | 'verify' | 'reject' | 'block' | 'unblock' | 'archive' | 'unarchive'
 }
 
 /** Delete-task request body. */
 export interface DeleteTaskBody {
   readonly id: string
+}
+
+/** Archive all done request body. */
+export interface ArchiveDoneBody {
+  readonly project?: string
 }
 
 /** Toggle the auto-claim poller request body. */

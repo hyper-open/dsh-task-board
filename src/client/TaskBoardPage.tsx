@@ -13,7 +13,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { BoardState, TaskDto, TaskPriority, TaskStatus } from '../types.ts'
-import { createTask, deleteTask, fetchState, setAutoClaim, subscribeBoard, taskAction, updateTask } from './api.ts'
+import { archiveDone, createTask, deleteTask, fetchState, setAutoClaim, subscribeBoard, taskAction, updateTask } from './api.ts'
 import type { TaskBoardKey } from './locales.ts'
 import css from './TaskBoardPage.module.css'
 
@@ -35,6 +35,9 @@ export type TaskBoardPageProps = PropsRuntime<'main'> & TaskBoardInjected & Prop
 
 /** Columns in board order. */
 const COLUMNS: readonly TaskStatus[] = ['draft', 'ready', 'in_progress', 'review', 'done', 'blocked']
+
+/** How many done cards show before the Done column collapses. */
+const DONE_COLLAPSED = 10
 
 /** Last path segment of a directory. */
 function baseName(path: string): string {
@@ -83,6 +86,8 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
   const [draftPriority, setDraftPriority] = useState<TaskPriority>('normal')
   const [draftReady, setDraftReady] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | undefined>(undefined)
+  const [showArchived, setShowArchived] = useState(false)
+  const [doneExpanded, setDoneExpanded] = useState(false)
 
   useEffect(() => {
     const timer = setInterval(() => { setNow(Date.now()) }, 30_000)
@@ -122,9 +127,12 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
   }
 
   const tasks = board?.tasks ?? []
-  const visible = tasks
-    .filter(task => projectFilter === 'all' || task.project === projectFilter)
-    .filter(task => priorityFilter === 'all' || task.priority === priorityFilter)
+  const inProject = (task: TaskDto): boolean => projectFilter === 'all' || task.project === projectFilter
+  const inPriority = (task: TaskDto): boolean => priorityFilter === 'all' || task.priority === priorityFilter
+  // Live board excludes archived; the archive view lists only archived.
+  const visible = tasks.filter(task => task.archived !== true && inProject(task) && inPriority(task))
+  const archivedTasks = tasks.filter(task => task.archived === true && inProject(task))
+    .sort((a, b) => b.updatedAt - a.updatedAt)
   const rank = (p: TaskPriority): number => (p === 'high' ? 2 : p === 'normal' ? 1 : 0)
   // Highest priority first within each column, then most recently updated.
   const byStatus = (status: TaskStatus): TaskDto[] =>
@@ -164,6 +172,7 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
           <button type="button" className={css.refresh} aria-label={t('refresh')} onClick={() => { void refresh() }}>
             <IconRefreshOutlineRegular size={13} />{t('refresh')}
           </button>
+          <button type="button" className={clsx(css.refresh, showArchived && css.tabActive)} onClick={() => { setShowArchived(v => !v) }}>{showArchived ? t('archive.back') : t('archive.open')}</button>
           <button type="button" className={css.newBtn} onClick={openDraft}><IconPlusOutlineRegular size={13} />{t('new.action')}</button>
         </div>
       </header>
@@ -192,34 +201,69 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
 
       {board === undefined && error === undefined
         ? <div className={css.loading}>{t('loading')}</div>
-        : (
-            <div className={css.board}>
-              {COLUMNS.map(status => {
-                const items = byStatus(status)
-                return (
-                  <section key={status} className={clsx(css.column, status === 'blocked' && css.columnBlocked, status === 'done' && css.columnDone)} aria-label={t(`column.${status}` as TaskBoardKey)}>
-                    <header className={css.columnHeader}>
-                      <span className={css.columnDot} data-status={status} aria-hidden="true" />
-                      <h2 className={css.columnTitle}>{t(`column.${status}` as TaskBoardKey)}</h2>
-                      <span className={css.columnCount}>{items.length}</span>
-                    </header>
-                    {items.length === 0
-                      ? <p className={css.columnEmpty}>{t(`column.empty.${status}` as TaskBoardKey)}</p>
-                      : (
-                          <ul className={css.cardList}>
-                            {items.map(task => (
-                              <TaskCard key={task.id} task={task} now={now} t={t} confirming={confirmDeleteId === task.id}
-                                onAction={action => { void run(() => taskAction(task.id, action)) }}
-                                onStatus={status2 => { void run(() => updateTask({ id: task.id, status: status2 })) }}
-                                onDelete={() => { void remove(task.id) }} />
-                            ))}
-                          </ul>
+        : showArchived
+          ? (
+              <div className={css.archivePane}>
+                <div className={css.archiveHead}>
+                  <h2 className={css.archiveTitle}>{t('archive.title')}</h2>
+                  <span className={css.columnCount}>{archivedTasks.length}</span>
+                </div>
+                {archivedTasks.length === 0
+                  ? <p className={css.columnEmpty}>{t('archive.empty')}</p>
+                  : (
+                      <ul className={css.cardList}>
+                        {archivedTasks.map(task => (
+                          <TaskCard key={task.id} task={task} now={now} t={t} confirming={confirmDeleteId === task.id}
+                            onAction={action => { void run(() => taskAction(task.id, action)) }}
+                            onStatus={status2 => { void run(() => updateTask({ id: task.id, status: status2 })) }}
+                            onDelete={() => { void remove(task.id) }} />
+                        ))}
+                      </ul>
+                    )}
+              </div>
+            )
+          : (
+              <div className={css.board}>
+                {COLUMNS.map(status => {
+                  const all = byStatus(status)
+                  const isDone = status === 'done'
+                  const collapsed = isDone && !doneExpanded && all.length > DONE_COLLAPSED
+                  const items = collapsed ? all.slice(0, DONE_COLLAPSED) : all
+                  return (
+                    <section key={status} className={clsx(css.column, status === 'blocked' && css.columnBlocked, isDone && css.columnDone)} aria-label={t(`column.${status}` as TaskBoardKey)}>
+                      <header className={css.columnHeader}>
+                        <span className={css.columnDot} data-status={status} aria-hidden="true" />
+                        <h2 className={css.columnTitle}>{t(`column.${status}` as TaskBoardKey)}</h2>
+                        <span className={css.columnCount}>{all.length}</span>
+                        {isDone && all.length > 0 && (
+                          <button type="button" className={css.columnAction} onClick={() => { void run(() => archiveDone(projectFilter === 'all' ? undefined : projectFilter)) }}>{t('archive.allDone')}</button>
                         )}
-                  </section>
-                )
-              })}
-            </div>
-          )}
+                      </header>
+                      {items.length === 0
+                        ? <p className={css.columnEmpty}>{t(`column.empty.${status}` as TaskBoardKey)}</p>
+                        : (
+                            <ul className={css.cardList}>
+                              {items.map(task => (
+                                <TaskCard key={task.id} task={task} now={now} t={t} confirming={confirmDeleteId === task.id}
+                                  onAction={action => { void run(() => taskAction(task.id, action)) }}
+                                  onStatus={status2 => { void run(() => updateTask({ id: task.id, status: status2 })) }}
+                                  onDelete={() => { void remove(task.id) }} />
+                              ))}
+                            </ul>
+                          )}
+                      {collapsed && (
+                        <button type="button" className={css.moreBtn} onClick={() => { setDoneExpanded(true) }}>
+                          {t('archive.showMore', { n: all.length - DONE_COLLAPSED })}
+                        </button>
+                      )}
+                      {isDone && doneExpanded && all.length > DONE_COLLAPSED && (
+                        <button type="button" className={css.moreBtn} onClick={() => { setDoneExpanded(false) }}>{t('archive.showLess')}</button>
+                      )}
+                    </section>
+                  )
+                })}
+              </div>
+            )}
     </section>
   )
 }
@@ -230,7 +274,7 @@ function TaskCard(props: {
   readonly now: number
   readonly confirming: boolean
   readonly t: (k: TaskBoardKey, p?: Record<string, string | number>) => string
-  readonly onAction: (action: 'start' | 'verify' | 'reject' | 'block' | 'unblock') => void
+  readonly onAction: (action: 'start' | 'verify' | 'reject' | 'block' | 'unblock' | 'archive' | 'unarchive') => void
   readonly onStatus: (status: TaskStatus) => void
   readonly onDelete: () => void
 }) {
@@ -273,11 +317,15 @@ function TaskCard(props: {
       </div>
       {task.status === 'blocked' && task.blockedReason !== undefined && <p className={css.blockReason}>{t('card.blockedReason', { reason: task.blockedReason })}</p>}
       {(task.status === 'review' || task.status === 'done') && (
-        <p className={css.doneSummary}>{t('card.doneSummary', { summary: task.doneSummary ?? t('card.noSummary') })}</p>
+        <p className={css.doneSummary} title={task.doneSummary}>{t('card.doneSummary', { summary: task.doneSummary ?? t('card.noSummary') })}</p>
       )}
       <div className={css.cardActions}>
         {actions}
-        {task.status !== 'done' && task.status !== 'blocked' && btn(t('act.block'), () => { onAction('block') }, css.actionGhost)}
+        {task.archived === true
+          ? btn(t('act.unarchive'), () => { onAction('unarchive') })
+          : task.status === 'done'
+            ? btn(t('act.archive'), () => { onAction('archive') }, css.actionGhost)
+            : task.status !== 'blocked' && btn(t('act.block'), () => { onAction('block') }, css.actionGhost)}
         <button type="button" className={clsx(css.iconBtn, confirming && css.deleteConfirm)} aria-label={confirming ? t('card.confirmDelete') : t('card.delete')} onClick={onDelete}>
           {confirming ? t('card.confirmDelete') : <IconCloseOutlineRegular size={12} />}
         </button>

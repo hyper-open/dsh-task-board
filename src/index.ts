@@ -167,17 +167,62 @@ function resolveProject(store: TaskStore, arg: string): string {
     webCtx.effect(() => registerTaskBoardRoutes(webCtx, store), 'dsh-task-board: routes')
   })
 
-  // Background auto-claim poller: while enabled, periodically move every `ready`
-  // task into `in_progress` (owned by `auto`) so confirmed work starts without a
-  // human click. Interval is a config-free constant; the toggle lives on the board.
+  // Background auto-claim poller: while enabled, periodically pick up every
+  // `ready` task and DISPATCH a real agent session to execute it — create a
+  // session in the task's project, claim the task for that session, and submit
+  // a prompt that drives the claim→work→complete flow. The per-task guard keeps
+  // it from spawning duplicates while a dispatch is in flight.
+  const dispatching = new Set<string>()
   ctx.effect(() => {
     const timer = setInterval(() => {
       if (!store.autoClaim) return
       for (const task of store.list({ statuses: ['ready'] })) {
-        void store.claim(task.id, 'auto').catch(() => { /* a race (claimed elsewhere) is fine */ })
+        if (dispatching.has(task.id)) continue
+        dispatching.add(task.id)
+        void dispatchTask(ctx, store, task).finally(() => { dispatching.delete(task.id) })
       }
     }, 15_000)
     timer.unref?.()
     return () => { clearInterval(timer) }
   }, 'dsh-task-board: auto-claim poller')
+}
+
+/**
+ * Create a session in the task's project, claim the task for it, and submit the
+ * prompt that makes the agent execute and complete it.
+ * @param ctx - host context (to reach `sessionController`).
+ * @param store - the task store.
+ * @param task - the ready task to dispatch.
+ */
+async function dispatchTask(ctx: Context, store: TaskStore, task: TaskDto): Promise<void> {
+  const controller = ctx.get('sessionController') as
+    | {
+      create(request: { cwd?: string; workspaceId?: string }): Promise<{ agent?: { id?: string } } & { sessionId?: string } & { value?: { sessionId?: string } }>
+      prompt(request: { requestId: string; sessionId: string; mode: 'queue'; content: { type: 'text'; text: string }[] }, signal: AbortSignal): Promise<unknown>
+    }
+    | undefined
+  if (controller === undefined) return
+  // Prefer creating the session INSIDE the task's workspace (so it lands in that
+  // workspace's session list and shares its binding); fall back to the raw cwd
+  // when no registered workspace matches the task's project path.
+  const registry = ctx.get('workspaceRegistry') as
+    | { list(): { id: string; path: string }[] }
+    | undefined
+  const wanted = task.project.replace(/\\/g, '/').replace(/\/+$/, '')
+  const workspace = registry?.list().find(ws => ws.path.replace(/\\/g, '/').replace(/\/+$/, '') === wanted)
+  try {
+    const created = await controller.create(workspace !== undefined ? { workspaceId: workspace.id } : { cwd: task.project })
+    const sessionId = created.agent?.id ?? created.sessionId ?? created.value?.sessionId
+    if (sessionId === undefined) return
+    await store.claim(task.id, sessionId)
+    const prompt = `Automatically dispatched: please complete task ${task.id} ("${task.title}") on the task board. Use task_board_list to confirm it, keep it claimed, do the described work, then task_board_complete with a concise summary and the files you touched.`
+    await controller.prompt({
+      requestId: `task-board-auto-${task.id}-${Date.now()}`,
+      sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text: prompt }],
+    }, new AbortController().signal)
+  } catch {
+    // A failed dispatch leaves the task ready for a later tick or a manual start.
+  }
 }
