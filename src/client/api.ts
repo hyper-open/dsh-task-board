@@ -51,6 +51,18 @@ export async function deleteTask(id: string): Promise<boolean> {
   return body.deleted
 }
 
+/** Run a lifecycle action (start/verify/reject/block/unblock) on a task. */
+export async function taskAction(id: string, action: NonNullable<UpdateTaskBody['action']>, reason?: string): Promise<TaskDto> {
+  const body = await unwrap<{ task: TaskDto }>(post('/api/update', { id, action, ...(reason === undefined ? {} : { blockedReason: reason }) }))
+  return body.task
+}
+
+/** Enable/disable the background auto-claim poller. */
+export async function setAutoClaim(enabled: boolean): Promise<boolean> {
+  const body = await unwrap<{ autoClaim: boolean }>(post('/api/auto-claim', { enabled }))
+  return body.autoClaim
+}
+
 /**
  * Subscribe to the board's live state over SSE.
  * @param onState - called with every pushed board state (including the opening one).

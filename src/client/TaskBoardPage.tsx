@@ -1,11 +1,8 @@
 /**
- * DSH Task Board page: a three-column kanban (Todo / In progress / Done) of
- * project tasks. Tasks belong to a project (a workspace directory); the human
- * creates and manages them here, and an agent pulls a project's pending tasks
- * through the task_board_* tools. The board stays live over SSE.
- *
- * All reads/writes go to the Host `/taskboard` routes; this page keeps no
- * durable state of its own beyond the rendered snapshot and the create draft.
+ * DSH Task Board page: a kanban of project tasks across the full lifecycle —
+ * Draft · Ready · In progress · Review · Done · Blocked. The human creates and
+ * moves tasks; an agent processes a project's ready/in-progress tasks via the
+ * `task_board_*` tools; the board stays live over SSE.
  */
 import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
@@ -16,7 +13,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { BoardState, TaskDto, TaskPriority, TaskStatus } from '../types.ts'
-import { createTask, deleteTask, fetchState, subscribeBoard, updateTask } from './api.ts'
+import { createTask, deleteTask, fetchState, setAutoClaim, subscribeBoard, taskAction, updateTask } from './api.ts'
 import type { TaskBoardKey } from './locales.ts'
 import css from './TaskBoardPage.module.css'
 
@@ -33,11 +30,11 @@ export interface TaskBoardInjected {
   readonly currentProject?: string | undefined
 }
 
-/** Root-scoped page props: standard kit, injected services, and copy. */
+/** Root-scoped page props. */
 export type TaskBoardPageProps = PropsRuntime<'main'> & TaskBoardInjected & PropsLocale<'taskBoard'>
 
-/** The three kanban columns in order. */
-const COLUMNS: readonly TaskStatus[] = ['todo', 'in_progress', 'done']
+/** Columns in board order. */
+const COLUMNS: readonly TaskStatus[] = ['draft', 'ready', 'in_progress', 'review', 'done', 'blocked']
 
 /** Last path segment of a directory. */
 function baseName(path: string): string {
@@ -78,21 +75,19 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
   const [error, setError] = useState<string | undefined>(undefined)
   const [now, setNow] = useState(() => Date.now())
   const [projectFilter, setProjectFilter] = useState<string>('all')
-  // Draft form for creating a task.
   const [drafting, setDrafting] = useState(false)
   const [draftProject, setDraftProject] = useState('')
   const [draftTitle, setDraftTitle] = useState('')
   const [draftDesc, setDraftDesc] = useState('')
   const [draftPriority, setDraftPriority] = useState<TaskPriority>('normal')
+  const [draftReady, setDraftReady] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | undefined>(undefined)
 
-  // Tick for relative times.
   useEffect(() => {
     const timer = setInterval(() => { setNow(Date.now()) }, 30_000)
     return () => { clearInterval(timer) }
   }, [])
 
-  // Initial snapshot + live SSE subscription.
   useEffect(() => {
     let alive = true
     fetchState().then(state => { if (alive) { setBoard(state); setError(undefined) } }).catch(e => { if (alive) setError(e instanceof Error ? e.message : String(e)) })
@@ -103,45 +98,33 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
   const refresh = async (): Promise<void> => {
     try { setBoard(await fetchState()); setError(undefined) } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
-
-  const defaultProject = currentProject !== undefined && currentProject !== ''
-    ? currentProject
-    : (projects[0]?.path ?? '')
-
-  const openDraft = (): void => {
-    setDrafting(true)
-    setDraftProject(defaultProject)
-    setDraftTitle('')
-    setDraftDesc('')
-    setDraftPriority('normal')
+  const run = async (op: () => Promise<unknown>): Promise<void> => {
+    try { await op() } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
 
+  const defaultProject = currentProject !== undefined && currentProject !== '' ? currentProject : (projects[0]?.path ?? '')
+  const openDraft = (): void => {
+    setDrafting(true); setDraftProject(defaultProject); setDraftTitle(''); setDraftDesc(''); setDraftPriority('normal'); setDraftReady(false)
+  }
   const submitDraft = async (): Promise<void> => {
     const title = draftTitle.trim()
     if (title === '' || draftProject === '') return
-    try {
-      await createTask({ project: draftProject, title, ...(draftDesc.trim() === '' ? {} : { description: draftDesc.trim() }), priority: draftPriority })
+    await run(async () => {
+      await createTask({ project: draftProject, title, ...(draftDesc.trim() === '' ? {} : { description: draftDesc.trim() }), priority: draftPriority, status: draftReady ? 'ready' : 'draft' })
       setDrafting(false)
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    })
   }
-
-  const move = async (task: TaskDto, dir: 1 | -1): Promise<void> => {
-    const idx = COLUMNS.indexOf(task.status)
-    const next = COLUMNS[idx + dir]
-    if (next === undefined) return
-    try { await updateTask({ id: task.id, status: next }) } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
-  }
-
   const remove = async (id: string): Promise<void> => {
     if (confirmDeleteId !== id) { setConfirmDeleteId(id); return }
     setConfirmDeleteId(undefined)
-    try { await deleteTask(id) } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    await run(() => deleteTask(id))
   }
 
   const tasks = board?.tasks ?? []
   const visible = projectFilter === 'all' ? tasks : tasks.filter(task => task.project === projectFilter)
   const byStatus = (status: TaskStatus): TaskDto[] =>
     visible.filter(task => task.status === status).sort((a, b) => b.updatedAt - a.updatedAt)
+  const autoClaim = board?.autoClaim === true
 
   return (
     <section className={css.page} aria-label={t('page.title')} data-testid="task-board-page">
@@ -151,6 +134,11 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
           <p className={css.subtitle}>{t('page.subtitle')}</p>
         </div>
         <div className={css.headerRight}>
+          <label className={css.autoToggle} title={t('auto.hint')}>
+            <input type="checkbox" className={css.autoInput} checked={autoClaim} onChange={e => { void run(() => setAutoClaim(e.target.checked)) }} />
+            <span className={css.autoSwitch} aria-hidden="true" />
+            <span className={css.autoLabel}>{t('auto.label')}</span>
+          </label>
           <label className={css.projectPicker}>
             <span className={css.projectLabel}>{t('project.label')}</span>
             <select className={css.select} value={projectFilter} onChange={e => { setProjectFilter(e.target.value) }}>
@@ -159,13 +147,9 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
             </select>
           </label>
           <button type="button" className={css.refresh} aria-label={t('refresh')} onClick={() => { void refresh() }}>
-            <IconRefreshOutlineRegular size={13} />
-            {t('refresh')}
+            <IconRefreshOutlineRegular size={13} />{t('refresh')}
           </button>
-          <button type="button" className={css.newBtn} onClick={openDraft}>
-            <IconPlusOutlineRegular size={13} />
-            {t('new.action')}
-          </button>
+          <button type="button" className={css.newBtn} onClick={openDraft}><IconPlusOutlineRegular size={13} />{t('new.action')}</button>
         </div>
       </header>
 
@@ -180,10 +164,12 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
           <input className={css.input} placeholder={t('new.placeholder.title')} value={draftTitle} onChange={e => { setDraftTitle(e.target.value) }} />
           <input className={css.input} placeholder={t('new.placeholder.description')} value={draftDesc} onChange={e => { setDraftDesc(e.target.value) }} />
           <select className={css.select} value={draftPriority} onChange={e => { setDraftPriority(e.target.value as TaskPriority) }} aria-label="priority">
-            <option value="low">{t('priority.low')}</option>
-            <option value="normal">{t('priority.normal')}</option>
-            <option value="high">{t('priority.high')}</option>
+            <option value="low">{t('priority.low')}</option><option value="normal">{t('priority.normal')}</option><option value="high">{t('priority.high')}</option>
           </select>
+          <label className={css.readyToggle}>
+            <input type="checkbox" checked={draftReady} onChange={e => { setDraftReady(e.target.checked) }} />
+            <span>{t('new.readyNow')}</span>
+          </label>
           <button type="button" className={css.newBtn} disabled={draftTitle.trim() === '' || draftProject === ''} onClick={() => { void submitDraft() }}>{t('new.submit')}</button>
           <button type="button" className={css.ghostBtn} onClick={() => { setDrafting(false) }}>{t('new.cancel')}</button>
         </div>
@@ -196,7 +182,7 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
               {COLUMNS.map(status => {
                 const items = byStatus(status)
                 return (
-                  <section key={status} className={clsx(css.column, status === 'done' && css.columnDone)} aria-label={t(`column.${status}` as TaskBoardKey)}>
+                  <section key={status} className={clsx(css.column, status === 'blocked' && css.columnBlocked, status === 'done' && css.columnDone)} aria-label={t(`column.${status}` as TaskBoardKey)}>
                     <header className={css.columnHeader}>
                       <span className={css.columnDot} data-status={status} aria-hidden="true" />
                       <h2 className={css.columnTitle}>{t(`column.${status}` as TaskBoardKey)}</h2>
@@ -207,12 +193,10 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
                       : (
                           <ul className={css.cardList}>
                             {items.map(task => (
-                              <TaskCard
-                                key={task.id} task={task} now={now} t={t}
-                                confirming={confirmDeleteId === task.id}
-                                onMove={dir => { void move(task, dir) }}
-                                onDelete={() => { void remove(task.id) }}
-                              />
+                              <TaskCard key={task.id} task={task} now={now} t={t} confirming={confirmDeleteId === task.id}
+                                onAction={action => { void run(() => taskAction(task.id, action)) }}
+                                onStatus={status2 => { void run(() => updateTask({ id: task.id, status: status2 })) }}
+                                onDelete={() => { void remove(task.id) }} />
                             ))}
                           </ul>
                         )}
@@ -225,20 +209,43 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
   )
 }
 
-/** One task card. */
+/** One task card with lifecycle-appropriate actions. */
 function TaskCard(props: {
   readonly task: TaskDto
   readonly now: number
   readonly confirming: boolean
   readonly t: (k: TaskBoardKey, p?: Record<string, string | number>) => string
-  readonly onMove: (dir: 1 | -1) => void
+  readonly onAction: (action: 'start' | 'verify' | 'reject' | 'block' | 'unblock') => void
+  readonly onStatus: (status: TaskStatus) => void
   readonly onDelete: () => void
 }) {
-  const { task, now, confirming, t, onMove, onDelete } = props
-  const canPrev = task.status !== 'todo'
-  const canNext = task.status !== 'done'
+  const { task, now, confirming, t, onAction, onStatus, onDelete } = props
+  const btn = (label: string, onClick: () => void, cls?: string): JSX.Element => (
+    <button type="button" className={clsx(css.actionBtn, cls)} onClick={onClick}>{label}</button>
+  )
+  let actions: JSX.Element[]
+  switch (task.status) {
+    case 'draft':
+      actions = [btn(t('act.confirmReady'), () => { onStatus('ready') }, css.actionPrimary)]
+      break
+    case 'ready':
+      actions = [btn(t('act.start'), () => { onAction('start') }, css.actionPrimary)]
+      break
+    case 'in_progress':
+      actions = [btn(t('act.complete'), () => { onStatus('review') }, css.actionPrimary)]
+      break
+    case 'review':
+      actions = [btn(t('act.verify'), () => { onAction('verify') }, css.actionPrimary), btn(t('act.reject'), () => { onAction('reject') })]
+      break
+    case 'done':
+      actions = []
+      break
+    case 'blocked':
+      actions = [btn(t('act.unblock'), () => { onAction('unblock') }, css.actionPrimary)]
+      break
+  }
   return (
-    <li className={clsx(css.card, task.priority === 'high' && css.cardHigh)}>
+    <li className={clsx(css.card, task.priority === 'high' && css.cardHigh, task.status === 'blocked' && css.cardBlocked)}>
       <div className={css.cardTop}>
         <span className={css.cardTitle}>{task.title}</span>
         <span className={css.cardAge}>{ageLabel(task.updatedAt, now, t)}</span>
@@ -249,14 +256,15 @@ function TaskCard(props: {
         {task.priority !== 'normal' && <span className={css.priorityBadge} data-p={task.priority}>{t(`priority.${task.priority}` as TaskBoardKey)}</span>}
         {task.claimedBy !== undefined && <span className={css.claimed}>{t('card.claimedBy', { session: task.claimedBy.sessionId.slice(0, 12) })}</span>}
       </div>
-      {task.status === 'done' && (
+      {task.status === 'blocked' && task.blockedReason !== undefined && <p className={css.blockReason}>{t('card.blockedReason', { reason: task.blockedReason })}</p>}
+      {(task.status === 'review' || task.status === 'done') && (
         <p className={css.doneSummary}>{t('card.doneSummary', { summary: task.doneSummary ?? t('card.noSummary') })}</p>
       )}
       <div className={css.cardActions}>
-        <button type="button" className={css.iconBtn} disabled={!canPrev} aria-label={t('card.movePrev')} onClick={() => { onMove(-1) }}>←</button>
-        <button type="button" className={css.iconBtn} disabled={!canNext} aria-label={t('card.moveNext')} onClick={() => { onMove(1) }}>→</button>
-        <button type="button" className={clsx(css.iconBtn, css.deleteBtn, confirming && css.deleteConfirm)} aria-label={confirming ? t('card.confirmDelete') : t('card.delete')} onClick={onDelete}>
-          {confirming ? t('card.confirmDelete') : <IconCloseOutlineRegular size={13} />}
+        {actions}
+        {task.status !== 'done' && task.status !== 'blocked' && btn(t('act.block'), () => { onAction('block') }, css.actionGhost)}
+        <button type="button" className={clsx(css.iconBtn, confirming && css.deleteConfirm)} aria-label={confirming ? t('card.confirmDelete') : t('card.delete')} onClick={onDelete}>
+          {confirming ? t('card.confirmDelete') : <IconCloseOutlineRegular size={12} />}
         </button>
       </div>
     </li>

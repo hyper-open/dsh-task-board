@@ -2,8 +2,13 @@
  * the Host routes and the browser client exchange. */
 import { z } from 'zod'
 
-/** Lifecycle of one task. */
-export type TaskStatus = 'todo' | 'in_progress' | 'done'
+/**
+ * Lifecycle of one task.
+ * Main chain: draft → ready → in_progress → review → done.
+ * `blocked` is a side state (waiting on a dependency), plus `blockedFrom`
+ * remembers the state to restore.
+ */
+export type TaskStatus = 'draft' | 'ready' | 'in_progress' | 'review' | 'done' | 'blocked'
 
 /** Relative urgency of a task. */
 export type TaskPriority = 'low' | 'normal' | 'high'
@@ -31,6 +36,10 @@ export interface Task {
   readonly doneSummary?: string
   /** Files the completion touched, advisory. */
   readonly doneFiles?: string[]
+  /** When `status` is `blocked`, the state to restore on unblock. */
+  readonly blockedFrom?: Exclude<TaskStatus, 'blocked'>
+  /** When `status` is `blocked`, an optional reason. */
+  readonly blockedReason?: string
 }
 
 /** Zod schema guarding every durable task record as read/written by the domain. */
@@ -39,13 +48,15 @@ export const taskSchema = z.object({
   project: z.string(),
   title: z.string(),
   description: z.string().optional(),
-  status: z.enum(['todo', 'in_progress', 'done']),
+  status: z.enum(['draft', 'ready', 'in_progress', 'review', 'done', 'blocked']),
   priority: z.enum(['low', 'normal', 'high']),
   createdAt: z.number(),
   updatedAt: z.number(),
   claimedBy: z.object({ sessionId: z.string(), at: z.number() }).optional(),
   doneSummary: z.string().optional(),
   doneFiles: z.array(z.string()).optional(),
+  blockedFrom: z.enum(['draft', 'ready', 'in_progress', 'review', 'done']).optional(),
+  blockedReason: z.string().optional(),
 })
 
 /** Browser-facing task DTO (identical shape to the durable record). */
@@ -56,6 +67,8 @@ export interface BoardState {
   /** Monotonic revision; clients refetch when they detect a gap. */
   readonly rev: number
   readonly tasks: readonly TaskDto[]
+  /** Whether the background auto-claim poller is currently enabled. */
+  readonly autoClaim: boolean
 }
 
 /** Create-task request body. */
@@ -64,6 +77,8 @@ export interface CreateTaskBody {
   readonly title: string
   readonly description?: string
   readonly priority?: TaskPriority
+  /** Initial status; defaults to `draft`. */
+  readonly status?: Extract<TaskStatus, 'draft' | 'ready'>
 }
 
 /** Update-task request body (partial, status changes supported). */
@@ -75,6 +90,9 @@ export interface UpdateTaskBody {
   readonly status?: TaskStatus
   readonly doneSummary?: string
   readonly doneFiles?: string[]
+  readonly blockedReason?: string
+  /** Optional lifecycle action that overrides a plain status patch. */
+  readonly action?: 'start' | 'claim' | 'verify' | 'reject' | 'block' | 'unblock'
 }
 
 /** Delete-task request body. */
@@ -82,5 +100,13 @@ export interface DeleteTaskBody {
   readonly id: string
 }
 
-/** Reversible status keys the store exposes for validation. */
-export const TASK_STATUSES: readonly TaskStatus[] = ['todo', 'in_progress', 'done']
+/** Toggle the auto-claim poller request body. */
+export interface SetAutoClaimBody {
+  readonly enabled: boolean
+}
+
+/** All lifecycle states, in board order (blocked is rendered as its own column). */
+export const TASK_STATUSES: readonly TaskStatus[] = ['draft', 'ready', 'in_progress', 'review', 'done', 'blocked']
+
+/** The main chain states that participate in the normal forward flow. */
+export const MAIN_CHAIN: readonly Exclude<TaskStatus, 'blocked'>[] = ['draft', 'ready', 'in_progress', 'review', 'done']

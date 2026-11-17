@@ -1,6 +1,6 @@
 /** Host-side task store over a `storage-domain` table: schema-validated,
  * durable, synchronous reads, and change-emitting writes. Owns the monotonic
- * board revision that clients use for SSE resume. */
+ * board revision that clients use for SSE resume, and the auto-claim flag. */
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import { taskSchema } from './types.ts'
@@ -33,6 +33,7 @@ export function normalizeProject(project: string): string {
 export class TaskStore {
   private readonly table
   private rev = 0
+  private autoClaimFlag = false
   private listeners = new Set<(state: BoardState) => void>()
 
   /** @param domain - an opened task-board domain. */
@@ -49,7 +50,17 @@ export class TaskStore {
 
   /** Current board state with the current revision. */
   state(): BoardState {
-    return { rev: this.rev, tasks: this.all() }
+    return { rev: this.rev, tasks: this.all(), autoClaim: this.autoClaimFlag }
+  }
+
+  /** Whether the background auto-claim poller is enabled. */
+  get autoClaim(): boolean { return this.autoClaimFlag }
+
+  /** Enable/disable the background auto-claim poller. */
+  setAutoClaim(enabled: boolean): void {
+    if (this.autoClaimFlag === enabled) return
+    this.autoClaimFlag = enabled
+    this.emit()
   }
 
   /** List tasks, optionally filtered by project and/or a set of statuses. */
@@ -81,13 +92,13 @@ export class TaskStore {
     }
   }
 
-  /** Create one task in `todo`. */
-  async create(input: { project: string; title: string; description?: string; priority?: Task['priority'] }, now = Date.now()): Promise<TaskDto> {
+  /** Create one task; defaults to `draft` (not yet finalized). */
+  async create(input: { project: string; title: string; description?: string; priority?: Task['priority']; status?: Extract<TaskStatus, 'draft' | 'ready'> }, now = Date.now()): Promise<TaskDto> {
     const task: Task = {
       id: nextId(now),
       project: normalizeProject(input.project),
       title: input.title.trim(),
-      status: 'todo',
+      status: input.status ?? 'draft',
       priority: input.priority ?? 'normal',
       createdAt: now,
       updatedAt: now,
@@ -99,40 +110,80 @@ export class TaskStore {
     return task
   }
 
-  /** Patch a task; `status` transitions are free-form (no enforced graph in v1). */
-  async update(id: string, patch: Partial<Omit<Task, 'id' | 'project' | 'createdAt'>>, now = Date.now()): Promise<TaskDto> {
+  /** Patch a task; status is free-form (the store does not enforce a graph). */
+  async update(id: string, patch: Partial<Omit<Task, 'id' | 'project' | 'createdAt'>> & Record<string, unknown>, now = Date.now()): Promise<TaskDto> {
     const current = this.get(id)
     if (current === undefined) throw new Error(`task not found: ${id}`)
-    const next: Task = {
+    // Leaving a blocked state clears the block bookkeeping unless re-blocking.
+    const clearingBlock = patch.status !== undefined && patch.status !== 'blocked' && current.status === 'blocked'
+    // Drop keys explicitly set to undefined so the durable record never stores
+    // an `undefined` for an optional field (matches exactOptionalPropertyTypes).
+    const clean: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(patch)) if (value !== undefined) clean[key] = value
+    const merged: Record<string, unknown> = {
       ...current,
-      ...patch,
+      ...clean,
       id: current.id,
       project: current.project,
       createdAt: current.createdAt,
       updatedAt: now,
     }
+    if (clearingBlock) { delete merged['blockedFrom']; delete merged['blockedReason'] }
+    const next = merged as unknown as Task
     await this.table.put(id, next)
     this.emit()
     return next
   }
 
-  /** Claim a todo task for one session: `todo → in_progress`. */
+  /**
+   * Move a task into in_progress and record its owner. Accepts `draft`, `ready`
+   * (and re-claims `in_progress` for a new owner). This is the "start"/claim edge.
+   */
   async claim(id: string, sessionId: string, now = Date.now()): Promise<TaskDto> {
     const current = this.get(id)
     if (current === undefined) throw new Error(`task not found: ${id}`)
     if (current.status === 'done') throw new Error(`task already done: ${id}`)
+    if (current.status === 'blocked') throw new Error(`task is blocked: ${id}`)
+    if (current.status === 'review') throw new Error(`task is awaiting verification: ${id}`)
     return this.update(id, { status: 'in_progress', claimedBy: { sessionId, at: now } }, now)
   }
 
-  /** Complete a task and record its summary/files: `* → done`. */
+  /** Complete a task's work: `in_progress → review`, recording summary/files. */
   async complete(id: string, input: { summary: string; files?: readonly string[] }, now = Date.now()): Promise<TaskDto> {
     const current = this.get(id)
     if (current === undefined) throw new Error(`task not found: ${id}`)
     return this.update(id, {
-      status: 'done',
+      status: 'review',
       doneSummary: input.summary,
       ...(input.files === undefined ? {} : { doneFiles: [...input.files] }),
     }, now)
+  }
+
+  /** Human acceptance: `review → done`. */
+  async verify(id: string, now = Date.now()): Promise<TaskDto> {
+    return this.update(id, { status: 'done' }, now)
+  }
+
+  /** Human rejection of a review: back to `in_progress` (clears the claim owner). */
+  async reject(id: string, now = Date.now()): Promise<TaskDto> {
+    return this.update(id, { status: 'in_progress', claimedBy: undefined } as Record<string, unknown>, now)
+  }
+
+  /** Block a task, remembering the state to restore. */
+  async block(id: string, reason?: string, now = Date.now()): Promise<TaskDto> {
+    const current = this.get(id)
+    if (current === undefined) throw new Error(`task not found: ${id}`)
+    if (current.status === 'blocked') return current
+    const from: Exclude<TaskStatus, 'blocked'> = current.status === 'done' ? 'ready' : current.status
+    return this.update(id, { status: 'blocked', blockedFrom: from, ...(reason === undefined ? {} : { blockedReason: reason }) }, now)
+  }
+
+  /** Unblock a task, restoring the state it was blocked from. */
+  async unblock(id: string, now = Date.now()): Promise<TaskDto> {
+    const current = this.get(id)
+    if (current === undefined) throw new Error(`task not found: ${id}`)
+    if (current.status !== 'blocked') return current
+    return this.update(id, { status: current.blockedFrom ?? 'ready' }, now)
   }
 
   /** Delete a task. */
