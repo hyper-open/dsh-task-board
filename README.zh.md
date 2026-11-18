@@ -20,7 +20,9 @@ bundle 插件：增加一块 **任务看板**——多列看板，每个任务**
 
 ## 截图
 
-![任务看板](docs/screenshot-light.png)
+| 浅色 | 深色 |
+|---|---|
+| ![light](docs/screenshot-light.png) | ![dark](docs/screenshot-dark.png) |
 
 ## 看板列
 

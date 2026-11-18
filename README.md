@@ -25,9 +25,11 @@ board share.
   board updates live over SSE as the agent works.
 - **No setup**: install, and the board appears in the sidebar.
 
-## Screenshot
+## Screenshots
 
-![Task board](docs/screenshot-light.png)
+| Light | Dark |
+|---|---|
+| ![light](docs/screenshot-light.png) | ![dark](docs/screenshot-dark.png) |
 
 ## Board columns
 

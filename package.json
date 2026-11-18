@@ -51,7 +51,9 @@
     "cordis.patch.yml",
     "README.md",
     "README.zh.md",
-    "LICENSE"
+    "LICENSE",
+    "docs/screenshot-light.png",
+    "docs/screenshot-dark.png"
   ],
   "dsh": {
     "bundle": {
