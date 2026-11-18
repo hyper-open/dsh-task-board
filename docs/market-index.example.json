@@ -17,8 +17,8 @@
       "author": "hyper",
       "keywords": ["task", "taskboard", "kanban", "project", "agent", "dsh-plugin"],
       "metadata": { "category": "productivity", "labels": ["community"], "keywords": ["task", "kanban", "project"] },
-      "dist-tags": { "latest": "0.1.0" },
-      "versions": [ { "version": "0.1.0", "publishTimestamp": 1763200000, "source": { "type": "npm" }, "engines": { "dsh": ">=0.2.0 <0.3.0" } } ]
+      "dist-tags": { "latest": "0.1.2" },
+      "versions": [ { "version": "0.1.2", "publishTimestamp": 1763200000, "source": { "type": "npm" }, "engines": { "dsh": ">=0.2.0 <0.3.0" } } ]
     }
   ]
 }

@@ -42,6 +42,8 @@ export interface Task {
   readonly blockedReason?: string
   /** Archived tasks are hidden from the board columns and shown in the archive view. */
   readonly archived?: boolean
+  /** Whether auto-dispatch should reuse an idle session in the project instead of creating a new one. */
+  readonly reuseIdle?: boolean
 }
 
 /** Zod schema guarding every durable task record as read/written by the domain. */
@@ -60,6 +62,7 @@ export const taskSchema = z.object({
   blockedFrom: z.enum(['draft', 'ready', 'in_progress', 'review', 'done']).optional(),
   blockedReason: z.string().optional(),
   archived: z.boolean().optional(),
+  reuseIdle: z.boolean().optional(),
 })
 
 /** Browser-facing task DTO (identical shape to the durable record). */
@@ -82,6 +85,8 @@ export interface CreateTaskBody {
   readonly priority?: TaskPriority
   /** Initial status; defaults to `draft`. */
   readonly status?: Extract<TaskStatus, 'draft' | 'ready'>
+  /** Reuse an idle session in the project on dispatch (default false = new session). */
+  readonly reuseIdle?: boolean
 }
 
 /** Update-task request body (partial, status changes supported). */

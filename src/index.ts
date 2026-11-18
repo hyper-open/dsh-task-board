@@ -198,21 +198,33 @@ async function dispatchTask(ctx: Context, store: TaskStore, task: TaskDto): Prom
   const controller = ctx.get('sessionController') as
     | {
       create(request: { cwd?: string; workspaceId?: string }): Promise<{ agent?: { id?: string } } & { sessionId?: string } & { value?: { sessionId?: string } }>
+      list(request: Record<string, never>, signal: AbortSignal): Promise<{ items: readonly { sessionId: string; cwd?: string; running?: boolean; blank?: boolean; parentSessionId?: string }[] }>
       prompt(request: { requestId: string; sessionId: string; mode: 'queue'; content: { type: 'text'; text: string }[] }, signal: AbortSignal): Promise<unknown>
     }
     | undefined
   if (controller === undefined) return
-  // Prefer creating the session INSIDE the task's workspace (so it lands in that
-  // workspace's session list and shares its binding); fall back to the raw cwd
-  // when no registered workspace matches the task's project path.
-  const registry = ctx.get('workspaceRegistry') as
-    | { list(): { id: string; path: string }[] }
-    | undefined
-  const wanted = task.project.replace(/\\/g, '/').replace(/\/+$/, '')
-  const workspace = registry?.list().find(ws => ws.path.replace(/\\/g, '/').replace(/\/+$/, '') === wanted)
+  const norm = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '')
+  const wanted = norm(task.project)
   try {
-    const created = await controller.create(workspace !== undefined ? { workspaceId: workspace.id } : { cwd: task.project })
-    const sessionId = created.agent?.id ?? created.sessionId ?? created.value?.sessionId
+    let sessionId: string | undefined
+    // Opt-in session reuse: when the task asks for it, pick an idle (non-blank,
+    // non-running) session in the same project and continue that conversation
+    // instead of spawning a new one. Any failure falls back to a fresh session.
+    if (task.reuseIdle === true) {
+      try {
+        const listed = await controller.list({}, new AbortController().signal)
+        const candidate = listed.items
+          .filter(item => item.blank !== true && item.running !== true && item.parentSessionId === undefined && item.cwd !== undefined && norm(item.cwd) === wanted)
+          .at(0)
+        if (candidate !== undefined) sessionId = candidate.sessionId
+      } catch { /* fall through to a fresh session */ }
+    }
+    if (sessionId === undefined) {
+      const registry = ctx.get('workspaceRegistry') as { list(): { id: string; path: string }[] } | undefined
+      const workspace = registry?.list().find(ws => norm(ws.path) === wanted)
+      const created = await controller.create(workspace !== undefined ? { workspaceId: workspace.id } : { cwd: task.project })
+      sessionId = created.agent?.id ?? created.sessionId ?? created.value?.sessionId
+    }
     if (sessionId === undefined) return
     await store.claim(task.id, sessionId)
     const prompt = `Automatically dispatched: please complete task ${task.id} ("${task.title}") on the task board. Use task_board_list to confirm it, keep it claimed, do the described work, then task_board_complete with a concise summary and the files you touched.`

@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import {
   IconCloseOutlineRegular,
+  IconEditOutlineRegular,
   IconPlusOutlineRegular,
   IconRefreshOutlineRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -85,6 +86,7 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
   const [draftDesc, setDraftDesc] = useState('')
   const [draftPriority, setDraftPriority] = useState<TaskPriority>('normal')
   const [draftReady, setDraftReady] = useState(false)
+  const [draftReuseIdle, setDraftReuseIdle] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | undefined>(undefined)
   const [showArchived, setShowArchived] = useState(false)
   const [doneExpanded, setDoneExpanded] = useState(false)
@@ -110,13 +112,13 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
 
   const defaultProject = currentProject !== undefined && currentProject !== '' ? currentProject : (projects[0]?.path ?? '')
   const openDraft = (): void => {
-    setDrafting(true); setDraftProject(defaultProject); setDraftTitle(''); setDraftDesc(''); setDraftPriority('normal'); setDraftReady(false)
+    setDrafting(true); setDraftProject(defaultProject); setDraftTitle(''); setDraftDesc(''); setDraftPriority('normal'); setDraftReady(false); setDraftReuseIdle(false)
   }
   const submitDraft = async (): Promise<void> => {
     const title = draftTitle.trim()
     if (title === '' || draftProject === '') return
     await run(async () => {
-      await createTask({ project: draftProject, title, ...(draftDesc.trim() === '' ? {} : { description: draftDesc.trim() }), priority: draftPriority, status: draftReady ? 'ready' : 'draft' })
+      await createTask({ project: draftProject, title, ...(draftDesc.trim() === '' ? {} : { description: draftDesc.trim() }), priority: draftPriority, status: draftReady ? 'ready' : 'draft', reuseIdle: draftReuseIdle })
       setDrafting(false)
     })
   }
@@ -194,6 +196,10 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
             <input type="checkbox" checked={draftReady} onChange={e => { setDraftReady(e.target.checked) }} />
             <span>{t('new.readyNow')}</span>
           </label>
+          <label className={css.readyToggle} title={t('new.reuseIdleHint')}>
+            <input type="checkbox" checked={draftReuseIdle} onChange={e => { setDraftReuseIdle(e.target.checked) }} />
+            <span>{t('new.reuseIdle')}</span>
+          </label>
           <button type="button" className={css.newBtn} disabled={draftTitle.trim() === '' || draftProject === ''} onClick={() => { void submitDraft() }}>{t('new.submit')}</button>
           <button type="button" className={css.ghostBtn} onClick={() => { setDrafting(false) }}>{t('new.cancel')}</button>
         </div>
@@ -216,6 +222,7 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
                           <TaskCard key={task.id} task={task} now={now} t={t} confirming={confirmDeleteId === task.id}
                             onAction={action => { void run(() => taskAction(task.id, action)) }}
                             onStatus={status2 => { void run(() => updateTask({ id: task.id, status: status2 })) }}
+                            onSave={patch => { void run(() => updateTask({ id: task.id, ...patch })) }}
                             onDelete={() => { void remove(task.id) }} />
                         ))}
                       </ul>
@@ -247,6 +254,7 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
                                 <TaskCard key={task.id} task={task} now={now} t={t} confirming={confirmDeleteId === task.id}
                                   onAction={action => { void run(() => taskAction(task.id, action)) }}
                                   onStatus={status2 => { void run(() => updateTask({ id: task.id, status: status2 })) }}
+                                  onSave={patch => { void run(() => updateTask({ id: task.id, ...patch })) }}
                                   onDelete={() => { void remove(task.id) }} />
                               ))}
                             </ul>
@@ -277,8 +285,20 @@ function TaskCard(props: {
   readonly onAction: (action: 'start' | 'verify' | 'reject' | 'block' | 'unblock' | 'archive' | 'unarchive') => void
   readonly onStatus: (status: TaskStatus) => void
   readonly onDelete: () => void
+  readonly onSave: (patch: { title: string; description?: string; priority: TaskPriority }) => void
 }) {
-  const { task, now, confirming, t, onAction, onStatus, onDelete } = props
+  const { task, now, confirming, t, onAction, onStatus, onDelete, onSave } = props
+  const [editing, setEditing] = useState(false)
+  const [eTitle, setETitle] = useState(task.title)
+  const [eDesc, setEDesc] = useState(task.description ?? '')
+  const [ePriority, setEPriority] = useState<TaskPriority>(task.priority)
+  const beginEdit = (): void => { setETitle(task.title); setEDesc(task.description ?? ''); setEPriority(task.priority); setEditing(true) }
+  const commitEdit = (): void => {
+    const title = eTitle.trim()
+    if (title === '') return
+    onSave({ title, ...(eDesc.trim() === '' ? {} : { description: eDesc.trim() }), priority: ePriority })
+    setEditing(false)
+  }
   const btn = (label: string, onClick: () => void, cls?: string): JSX.Element => (
     <button type="button" className={clsx(css.actionBtn, cls)} onClick={onClick}>{label}</button>
   )
@@ -303,6 +323,21 @@ function TaskCard(props: {
       actions = [btn(t('act.unblock'), () => { onAction('unblock') }, css.actionPrimary)]
       break
   }
+  if (editing) {
+    return (
+      <li className={css.card}>
+        <input className={css.input} value={eTitle} onChange={e => { setETitle(e.target.value) }} placeholder={t('new.placeholder.title')} aria-label="title" />
+        <textarea className={clsx(css.input, css.editTextarea)} value={eDesc} onChange={e => { setEDesc(e.target.value) }} placeholder={t('new.placeholder.description')} aria-label="description" />
+        <select className={css.select} value={ePriority} onChange={e => { setEPriority(e.target.value as TaskPriority) }} aria-label="priority">
+          <option value="low">{t('priority.low')}</option><option value="normal">{t('priority.normal')}</option><option value="high">{t('priority.high')}</option>
+        </select>
+        <div className={css.cardActions}>
+          <button type="button" className={clsx(css.actionBtn, css.actionPrimary)} disabled={eTitle.trim() === ''} onClick={commitEdit}>{t('edit.save')}</button>
+          <button type="button" className={css.actionBtn} onClick={() => { setEditing(false) }}>{t('edit.cancel')}</button>
+        </div>
+      </li>
+    )
+  }
   return (
     <li className={clsx(css.card, task.priority === 'high' && css.cardHigh, task.status === 'blocked' && css.cardBlocked)}>
       <div className={css.cardTop}>
@@ -326,6 +361,9 @@ function TaskCard(props: {
           : task.status === 'done'
             ? btn(t('act.archive'), () => { onAction('archive') }, css.actionGhost)
             : task.status !== 'blocked' && btn(t('act.block'), () => { onAction('block') }, css.actionGhost)}
+        <button type="button" className={css.iconBtn} aria-label={t('card.edit')} title={t('card.edit')} onClick={beginEdit}>
+          <IconEditOutlineRegular size={12} />
+        </button>
         <button type="button" className={clsx(css.iconBtn, confirming && css.deleteConfirm)} aria-label={confirming ? t('card.confirmDelete') : t('card.delete')} onClick={onDelete}>
           {confirming ? t('card.confirmDelete') : <IconCloseOutlineRegular size={12} />}
         </button>

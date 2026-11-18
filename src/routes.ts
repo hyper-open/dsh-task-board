@@ -92,6 +92,7 @@ export function registerTaskBoardRoutes(ctx: Context, store: TaskStore): () => v
         ...(body.description === undefined ? {} : { description: body.description }),
         ...(body.priority === undefined ? {} : { priority: body.priority }),
         ...(body.status === 'ready' ? { status: 'ready' as const } : {}),
+        ...(body.reuseIdle === true ? { reuseIdle: true } : {}),
       })
       json(res, 200, { ok: true, task })
     } catch (error) {
