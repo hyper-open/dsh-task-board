@@ -2,8 +2,25 @@
  * (same origin as the GUI) plus the SSE subscription that keeps the board live. */
 import type { BoardState, CreateTaskBody, DeleteTaskBody, TaskDto, UpdateTaskBody } from '../types.ts'
 
-/** Path prefix owning every task-board route. */
-const BASE = '/taskboard'
+/**
+ * Resolve the task-board route base for the current deployment.
+ *
+ * Under a prefix-stripping reverse proxy (e.g. served at https://host/dsh/) the
+ * page lives in a sub-path; absolute '/taskboard' would escape the prefix and
+ * 404. Resolving 'taskboard' against `document.baseURI` respects any injected
+ * `<base href>` and otherwise keeps the current directory — so the same build
+ * works at the origin root and behind a sub-path.
+ */
+function resolveBase(): string {
+  try {
+    const url = new URL('taskboard', document.baseURI)
+    // Strip the origin so fetches stay same-origin relative (works behind proxies).
+    return url.pathname.replace(/\/+$/, '')
+  } catch {
+    return '/taskboard'
+  }
+}
+const BASE = resolveBase()
 
 /** Unwrap the `{ok, ...}` envelope, throwing on a transport or payload error. */
 async function unwrap<T>(pending: Promise<Response>): Promise<T> {
