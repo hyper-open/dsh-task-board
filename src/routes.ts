@@ -93,6 +93,8 @@ export function registerTaskBoardRoutes(ctx: Context, store: TaskStore): () => v
         ...(body.priority === undefined ? {} : { priority: body.priority }),
         ...(body.status === 'ready' ? { status: 'ready' as const } : {}),
         ...(body.reuseIdle === true ? { reuseIdle: true } : {}),
+        ...(body.sessionMode === 'new' || body.sessionMode === 'reuse' ? { sessionMode: body.sessionMode } : {}),
+        ...(body.reuseSessionId === undefined || body.reuseSessionId === '' ? {} : { reuseSessionId: body.reuseSessionId }),
       })
       json(res, 200, { ok: true, task })
     } catch (error) {

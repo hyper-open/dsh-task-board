@@ -207,10 +207,16 @@ async function dispatchTask(ctx: Context, store: TaskStore, task: TaskDto): Prom
   const wanted = norm(task.project)
   try {
     let sessionId: string | undefined
-    // Opt-in session reuse: when the task asks for it, pick an idle (non-blank,
-    // non-running) session in the same project and continue that conversation
-    // instead of spawning a new one. Any failure falls back to a fresh session.
-    if (task.reuseIdle === true) {
+    // Per-task session strategy:
+    // - reuse with an explicit reuseSessionId -> continue that exact session
+    // - reuseIdle -> pick an idle session in the project
+    // - otherwise -> create a new session
+    if (task.sessionMode === 'reuse' && task.reuseSessionId !== undefined && task.reuseSessionId !== '') {
+      try {
+        const listed = await controller.list({}, new AbortController().signal)
+        if (listed.items.some(item => item.sessionId === task.reuseSessionId)) sessionId = task.reuseSessionId
+      } catch { /* fall through */ }
+    } else if (task.reuseIdle === true) {
       try {
         const listed = await controller.list({}, new AbortController().signal)
         const candidate = listed.items

@@ -20,7 +20,7 @@ import css from './TaskBoardPage.module.css'
 
 /** Minimal workspace-list snapshot the page reads (paths + titles). */
 export interface WorkspaceListView {
-  readonly items: readonly { readonly path: string; readonly title: string }[]
+  readonly items: readonly { readonly path: string; readonly title: string; readonly sessionIds?: readonly string[] }[]
 }
 
 /** Injected services the page uses. */
@@ -75,6 +75,17 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
     return out
   }, [workspaceSnapshot])
 
+  // Flat list of known sessions (id + owning project label) for the "reuse session" picker.
+  const sessions = useMemo(() => {
+    const out: { id: string; label: string }[] = []
+    for (const item of workspaceSnapshot.items) {
+      for (const sid of item.sessionIds ?? []) {
+        out.push({ id: sid, label: `${item.title} · ${sid.slice(0, 8)}` })
+      }
+    }
+    return out
+  }, [workspaceSnapshot])
+
   const [board, setBoard] = useState<BoardState | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
   const [now, setNow] = useState(() => Date.now())
@@ -86,7 +97,8 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
   const [draftDesc, setDraftDesc] = useState('')
   const [draftPriority, setDraftPriority] = useState<TaskPriority>('normal')
   const [draftReady, setDraftReady] = useState(false)
-  const [draftReuseIdle, setDraftReuseIdle] = useState(false)
+  const [draftSessionMode, setDraftSessionMode] = useState<'new' | 'reuse'>('new')
+  const [draftReuseSessionId, setDraftReuseSessionId] = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | undefined>(undefined)
   const [showArchived, setShowArchived] = useState(false)
   const [doneExpanded, setDoneExpanded] = useState(false)
@@ -112,13 +124,13 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
 
   const defaultProject = currentProject !== undefined && currentProject !== '' ? currentProject : (projects[0]?.path ?? '')
   const openDraft = (): void => {
-    setDrafting(true); setDraftProject(defaultProject); setDraftTitle(''); setDraftDesc(''); setDraftPriority('normal'); setDraftReady(false); setDraftReuseIdle(false)
+    setDrafting(true); setDraftProject(defaultProject); setDraftTitle(''); setDraftDesc(''); setDraftPriority('normal'); setDraftReady(false); setDraftSessionMode('new'); setDraftReuseSessionId('')
   }
   const submitDraft = async (): Promise<void> => {
     const title = draftTitle.trim()
     if (title === '' || draftProject === '') return
     await run(async () => {
-      await createTask({ project: draftProject, title, ...(draftDesc.trim() === '' ? {} : { description: draftDesc.trim() }), priority: draftPriority, status: draftReady ? 'ready' : 'draft', reuseIdle: draftReuseIdle })
+      await createTask({ project: draftProject, title, ...(draftDesc.trim() === '' ? {} : { description: draftDesc.trim() }), priority: draftPriority, status: draftReady ? 'ready' : 'draft', sessionMode: draftSessionMode, ...(draftSessionMode === 'reuse' && draftReuseSessionId !== '' ? { reuseSessionId: draftReuseSessionId } : {}) })
       setDrafting(false)
     })
   }
@@ -196,10 +208,16 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
             <input type="checkbox" checked={draftReady} onChange={e => { setDraftReady(e.target.checked) }} />
             <span>{t('new.readyNow')}</span>
           </label>
-          <label className={css.readyToggle} title={t('new.reuseIdleHint')}>
-            <input type="checkbox" checked={draftReuseIdle} onChange={e => { setDraftReuseIdle(e.target.checked) }} />
-            <span>{t('new.reuseIdle')}</span>
-          </label>
+          <select className={css.select} value={draftSessionMode} onChange={e => { setDraftSessionMode(e.target.value as 'new' | 'reuse') }} aria-label={t('new.sessionMode')} title={t('new.sessionModeHint')}>
+            <option value="new">{t('new.sessionNew')}</option>
+            <option value="reuse">{t('new.sessionReuse')}</option>
+          </select>
+          {draftSessionMode === 'reuse' && (
+            <select className={css.select} value={draftReuseSessionId} onChange={e => { setDraftReuseSessionId(e.target.value) }} aria-label={t('new.pickSession')}>
+              <option value="">{t('new.pickSession')}</option>
+              {sessions.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}
+            </select>
+          )}
           <button type="button" className={css.newBtn} disabled={draftTitle.trim() === '' || draftProject === ''} onClick={() => { void submitDraft() }}>{t('new.submit')}</button>
           <button type="button" className={css.ghostBtn} onClick={() => { setDrafting(false) }}>{t('new.cancel')}</button>
         </div>
@@ -222,7 +240,7 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
                           <TaskCard key={task.id} task={task} now={now} t={t} confirming={confirmDeleteId === task.id}
                             onAction={action => { void run(() => taskAction(task.id, action)) }}
                             onStatus={status2 => { void run(() => updateTask({ id: task.id, status: status2 })) }}
-                            onSave={patch => { void run(() => updateTask({ id: task.id, ...patch })) }}
+                            onSave={patch => { void run(() => updateTask({ id: task.id, ...patch })) }} sessions={sessions}
                             onDelete={() => { void remove(task.id) }} />
                         ))}
                       </ul>
@@ -254,7 +272,7 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
                                 <TaskCard key={task.id} task={task} now={now} t={t} confirming={confirmDeleteId === task.id}
                                   onAction={action => { void run(() => taskAction(task.id, action)) }}
                                   onStatus={status2 => { void run(() => updateTask({ id: task.id, status: status2 })) }}
-                                  onSave={patch => { void run(() => updateTask({ id: task.id, ...patch })) }}
+                                  onSave={patch => { void run(() => updateTask({ id: task.id, ...patch })) }} sessions={sessions}
                                   onDelete={() => { void remove(task.id) }} />
                               ))}
                             </ul>
@@ -285,18 +303,21 @@ function TaskCard(props: {
   readonly onAction: (action: 'start' | 'verify' | 'reject' | 'block' | 'unblock' | 'archive' | 'unarchive') => void
   readonly onStatus: (status: TaskStatus) => void
   readonly onDelete: () => void
-  readonly onSave: (patch: { title: string; description?: string; priority: TaskPriority }) => void
+  readonly onSave: (patch: { title: string; description?: string; priority: TaskPriority; sessionMode?: 'new' | 'reuse'; reuseSessionId?: string }) => void
+  readonly sessions: readonly { id: string; label: string }[]
 }) {
   const { task, now, confirming, t, onAction, onStatus, onDelete, onSave } = props
   const [editing, setEditing] = useState(false)
   const [eTitle, setETitle] = useState(task.title)
   const [eDesc, setEDesc] = useState(task.description ?? '')
   const [ePriority, setEPriority] = useState<TaskPriority>(task.priority)
-  const beginEdit = (): void => { setETitle(task.title); setEDesc(task.description ?? ''); setEPriority(task.priority); setEditing(true) }
+  const [eSessionMode, setESessionMode] = useState<'new' | 'reuse'>(task.sessionMode ?? 'new')
+  const [eReuseSessionId, setEReuseSessionId] = useState(task.reuseSessionId ?? '')
+  const beginEdit = (): void => { setETitle(task.title); setEDesc(task.description ?? ''); setEPriority(task.priority); setESessionMode(task.sessionMode ?? 'new'); setEReuseSessionId(task.reuseSessionId ?? ''); setEditing(true) }
   const commitEdit = (): void => {
     const title = eTitle.trim()
     if (title === '') return
-    onSave({ title, ...(eDesc.trim() === '' ? {} : { description: eDesc.trim() }), priority: ePriority })
+    onSave({ title, ...(eDesc.trim() === '' ? {} : { description: eDesc.trim() }), priority: ePriority, sessionMode: eSessionMode, reuseSessionId: eSessionMode === 'reuse' ? eReuseSessionId : '' })
     setEditing(false)
   }
   const btn = (label: string, onClick: () => void, cls?: string): JSX.Element => (
@@ -331,6 +352,15 @@ function TaskCard(props: {
         <select className={css.select} value={ePriority} onChange={e => { setEPriority(e.target.value as TaskPriority) }} aria-label="priority">
           <option value="low">{t('priority.low')}</option><option value="normal">{t('priority.normal')}</option><option value="high">{t('priority.high')}</option>
         </select>
+        <select className={css.select} value={eSessionMode} onChange={e => { setESessionMode(e.target.value as 'new' | 'reuse') }} aria-label={t('new.sessionMode')}>
+          <option value="new">{t('new.sessionNew')}</option><option value="reuse">{t('new.sessionReuse')}</option>
+        </select>
+        {eSessionMode === 'reuse' && (
+          <select className={css.select} value={eReuseSessionId} onChange={e => { setEReuseSessionId(e.target.value) }} aria-label={t('new.pickSession')}>
+            <option value="">{t('new.pickSession')}</option>
+            {props.sessions.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}
+          </select>
+        )}
         <div className={css.cardActions}>
           <button type="button" className={clsx(css.actionBtn, css.actionPrimary)} disabled={eTitle.trim() === ''} onClick={commitEdit}>{t('edit.save')}</button>
           <button type="button" className={css.actionBtn} onClick={() => { setEditing(false) }}>{t('edit.cancel')}</button>

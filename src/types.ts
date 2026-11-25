@@ -44,6 +44,10 @@ export interface Task {
   readonly archived?: boolean
   /** Whether auto-dispatch should reuse an idle session in the project instead of creating a new one. */
   readonly reuseIdle?: boolean
+  /** Session strategy on dispatch: create a new session, or reuse an existing one. */
+  readonly sessionMode?: 'new' | 'reuse'
+  /** When sessionMode==='reuse', the exact session id to continue. */
+  readonly reuseSessionId?: string
 }
 
 /** Zod schema guarding every durable task record as read/written by the domain. */
@@ -63,6 +67,8 @@ export const taskSchema = z.object({
   blockedReason: z.string().optional(),
   archived: z.boolean().optional(),
   reuseIdle: z.boolean().optional(),
+  sessionMode: z.enum(['new', 'reuse']).optional(),
+  reuseSessionId: z.string().optional(),
 })
 
 /** Browser-facing task DTO (identical shape to the durable record). */
@@ -87,6 +93,10 @@ export interface CreateTaskBody {
   readonly status?: Extract<TaskStatus, 'draft' | 'ready'>
   /** Reuse an idle session in the project on dispatch (default false = new session). */
   readonly reuseIdle?: boolean
+  /** Session strategy: 'new' (default) or 'reuse'. */
+  readonly sessionMode?: 'new' | 'reuse'
+  /** When sessionMode==='reuse', the session id to continue. */
+  readonly reuseSessionId?: string
 }
 
 /** Update-task request body (partial, status changes supported). */

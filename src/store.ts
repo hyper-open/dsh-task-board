@@ -124,7 +124,7 @@ export class TaskStore {
   }
 
   /** Create one task; defaults to `draft` (not yet finalized). */
-  async create(input: { project: string; title: string; description?: string; priority?: Task['priority']; status?: Extract<TaskStatus, 'draft' | 'ready'>; reuseIdle?: boolean }, now = Date.now()): Promise<TaskDto> {
+  async create(input: { project: string; title: string; description?: string; priority?: Task['priority']; status?: Extract<TaskStatus, 'draft' | 'ready'>; reuseIdle?: boolean; sessionMode?: 'new' | 'reuse'; reuseSessionId?: string }, now = Date.now()): Promise<TaskDto> {
     const task: Task = {
       id: nextId(now),
       project: normalizeProject(input.project),
@@ -135,6 +135,8 @@ export class TaskStore {
       updatedAt: now,
       ...(input.description === undefined || input.description === '' ? {} : { description: input.description }),
       ...(input.reuseIdle === true ? { reuseIdle: true } : {}),
+      ...(input.sessionMode === undefined ? {} : { sessionMode: input.sessionMode }),
+      ...(input.reuseSessionId === undefined || input.reuseSessionId === '' ? {} : { reuseSessionId: input.reuseSessionId }),
     }
     if (task.title === '') throw new Error('task title must not be empty')
     await this.table.put(task.id, task)
