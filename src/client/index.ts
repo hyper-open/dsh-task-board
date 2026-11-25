@@ -32,7 +32,7 @@ export type { TaskBoardPageProps, TaskBoardInjected } from './TaskBoardPage.tsx'
 const PANEL_ID = 'taskBoard' as MainPanelId
 
 /** Injected face as returned by the factory (before hooks are synthesized). */
-interface TaskBoardInjectedRaw extends Omit<TaskBoardInjected, 'useWorkspaces'> {
+interface TaskBoardInjectedRaw extends Omit<TaskBoardInjected, 'useWorkspaces' | 'useSessions'> {
   readonly hooks: { readonly workspaces: HostObservable<WorkspaceListView> }
 }
 

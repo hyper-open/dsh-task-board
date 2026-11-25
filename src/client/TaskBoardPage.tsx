@@ -21,12 +21,21 @@ import css from './TaskBoardPage.module.css'
 /** Minimal workspace-list snapshot the page reads (paths + titles). */
 export interface WorkspaceListView {
   readonly items: readonly { readonly path: string; readonly title: string; readonly sessionIds?: readonly string[] }[]
+  readonly archivedSessionIds?: readonly string[]
+}
+
+/** Minimal session-list snapshot (from the auto-injected useSessions hook). */
+export interface SessionsView {
+  readonly ids: readonly string[]
+  readonly byId: Readonly<Record<string, { readonly displayTitle?: string; readonly title?: string; readonly cwd?: string; readonly blank?: boolean } | undefined>>
 }
 
 /** Injected services the page uses. */
 export interface TaskBoardInjected {
   /** Workspace list, for the project selector and default project. */
   readonly useWorkspaces: SnapshotSelectorHook<WorkspaceListView>
+  /** Session list (auto-injected), for the "reuse session" picker. */
+  readonly useSessions: SnapshotSelectorHook<SessionsView>
   /** The current session's working directory (its project), when known. */
   readonly currentProject?: string | undefined
 }
@@ -39,6 +48,11 @@ const COLUMNS: readonly TaskStatus[] = ['draft', 'ready', 'in_progress', 'review
 
 /** How many done cards show before the Done column collapses. */
 const DONE_COLLAPSED = 10
+
+/** Normalise a path for comparison (unify slashes, drop trailing slash). */
+function normPath(p: string): string {
+  return (p || '').replace(/\\/g, '/').replace(/\/+$/, '')
+}
 
 /** Last path segment of a directory. */
 function baseName(path: string): string {
@@ -62,7 +76,7 @@ function ageLabel(updatedAt: number, now: number, t: (k: TaskBoardKey, p?: Recor
  * @returns the global task-board page.
  */
 export function TaskBoardPage(props: TaskBoardPageProps) {
-  const { useWorkspaces, currentProject, t } = props
+  const { useWorkspaces, useSessions, currentProject, t } = props
   const workspaceSnapshot = useWorkspaces(state => state)
   const projects = useMemo(() => {
     const seen = new Set<string>()
@@ -75,16 +89,27 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
     return out
   }, [workspaceSnapshot])
 
-  // Flat list of known sessions (id + owning project label) for the "reuse session" picker.
-  const sessions = useMemo(() => {
-    const out: { id: string; label: string }[] = []
-    for (const item of workspaceSnapshot.items) {
-      for (const sid of item.sessionIds ?? []) {
-        out.push({ id: sid, label: `${item.title} · ${sid.slice(0, 8)}` })
-      }
+  // Session picker data: all non-archived, non-blank sessions with their project
+  // (cwd) and display title. The picker filters to the task's project at render.
+  const sessionSnapshot = useSessions(state => state)
+  const archivedIds = useMemo(() => new Set(workspaceSnapshot.archivedSessionIds ?? []), [workspaceSnapshot])
+  const allSessions = useMemo(() => {
+    const out: { id: string; cwd: string; title: string }[] = []
+    for (const id of sessionSnapshot.ids) {
+      const info = sessionSnapshot.byId[id]
+      if (info === undefined || info.blank === true) continue
+      if (archivedIds.has(id)) continue
+      const cwd = info.cwd ?? ''
+      const title = info.displayTitle ?? info.title ?? id
+      out.push({ id, cwd, title })
     }
     return out
-  }, [workspaceSnapshot])
+  }, [sessionSnapshot, archivedIds])
+  // Sessions for one project (by cwd), labeled by their conversation title.
+  const sessionsForProject = (project: string): { id: string; label: string }[] =>
+    allSessions
+      .filter(x => normPath(x.cwd) === normPath(project))
+      .map(x => ({ id: x.id, label: `${x.title} · ${x.id.slice(0, 6)}` }))
 
   const [board, setBoard] = useState<BoardState | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -215,7 +240,7 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
           {draftSessionMode === 'reuse' && (
             <select className={css.select} value={draftReuseSessionId} onChange={e => { setDraftReuseSessionId(e.target.value) }} aria-label={t('new.pickSession')}>
               <option value="">{t('new.pickSession')}</option>
-              {sessions.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}
+              {sessionsForProject(draftProject).map(x => <option key={x.id} value={x.id}>{x.label}</option>)}
             </select>
           )}
           <button type="button" className={css.newBtn} disabled={draftTitle.trim() === '' || draftProject === ''} onClick={() => { void submitDraft() }}>{t('new.submit')}</button>
@@ -240,7 +265,7 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
                           <TaskCard key={task.id} task={task} now={now} t={t} confirming={confirmDeleteId === task.id}
                             onAction={action => { void run(() => taskAction(task.id, action)) }}
                             onStatus={status2 => { void run(() => updateTask({ id: task.id, status: status2 })) }}
-                            onSave={patch => { void run(() => updateTask({ id: task.id, ...patch })) }} sessions={sessions}
+                            onSave={patch => { void run(() => updateTask({ id: task.id, ...patch })) }} sessions={sessionsForProject(task.project)}
                             onDelete={() => { void remove(task.id) }} />
                         ))}
                       </ul>
@@ -272,7 +297,7 @@ export function TaskBoardPage(props: TaskBoardPageProps) {
                                 <TaskCard key={task.id} task={task} now={now} t={t} confirming={confirmDeleteId === task.id}
                                   onAction={action => { void run(() => taskAction(task.id, action)) }}
                                   onStatus={status2 => { void run(() => updateTask({ id: task.id, status: status2 })) }}
-                                  onSave={patch => { void run(() => updateTask({ id: task.id, ...patch })) }} sessions={sessions}
+                                  onSave={patch => { void run(() => updateTask({ id: task.id, ...patch })) }} sessions={sessionsForProject(task.project)}
                                   onDelete={() => { void remove(task.id) }} />
                               ))}
                             </ul>
