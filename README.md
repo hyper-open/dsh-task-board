@@ -17,6 +17,8 @@ board share.
 - **Agent round-trip**: `task_board_list` → `task_board_claim` →
   `task_board_complete` (→ review), plus `task_board_update` for out-of-band moves.
   A system-prompt section teaches the model the flow.
+- **Session strategy**: each task runs in a new session, or reuses a chosen existing
+  one; the picker lists only unarchived sessions of that project, labeled by title.
 - **Auto-dispatch**: an optional poller claims `ready` tasks and dispatches a real
   agent session to execute each one.
 - **Archive**: done tasks can be archived (hidden from the board, restorable); the
@@ -55,13 +57,18 @@ inserts its loader row automatically.
 ## Using it
 
 - **Create a task**: header **New task** → project (workspace), title, optional
-  description, priority (low / normal / high), optional "mark ready now", and an
-  optional **reuse idle session** toggle (off by default; when on, auto-dispatch
-  continues in an idle session of the same project instead of creating a new one).
+  description, priority (low / normal / high), optional "mark ready now", a
+  **session strategy** (new session, or reuse a session you pick from that
+  project's unarchived sessions), and an optional **reuse idle session** toggle
+  (off by default, auto-dispatch only: continue in an idle session of the same
+  project instead of creating a new one). The strategy is stored per task; it wins
+  until the chosen session is archived or gone, in which case dispatch falls back
+  to a new session.
 - **Move**: each card has status-appropriate actions — Draft → **Confirm ready**;
   Ready → **▶ Start**; In progress → **Complete for review**; Review → **Accept** /
   **Reject**; any → **Block** / **Unblock**.
-- **Edit / delete**: the ✏️ button edits title, description, and priority inline;
+- **Edit / delete**: the ✏️ button edits title, description, priority, and the
+  session strategy inline;
   the × button deletes (click twice to confirm).
 - **Prioritize**: tasks are ordered high → normal → low within each column; a
   priority filter narrows the board.
@@ -122,6 +129,10 @@ DSH gates only `/api` with browser auth. Custom routes such as `/taskboard` are
 trusted at the server boundary (as the built-in HMR events route is). The write
 routes additionally refuse a cross-origin `Origin`. Run the GUI on loopback or behind
 a trusted reverse proxy, as you would the rest of DSH.
+
+The API base is resolved against `document.baseURI`, so the board also works when
+served under a **sub-path** (e.g. `https://host/dsh/`): after the proxy strips
+`/dsh`, requests still hit `/taskboard/api/*` and `/taskboard/events`.
 
 ## Contact
 
