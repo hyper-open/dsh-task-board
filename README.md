@@ -47,12 +47,15 @@ board share.
 ## Install
 
 ```sh
+# web
 dsh plugin --profile web add dsh-project-tasks
+# desktop
+dsh plugin --profile desktop add dsh-project-tasks
 ```
 
-Restart `dsh web` (or reopen the GUI) and refresh the page: a **Task board** entry
-appears in the sidebar. It is a **bundle** (`dsh.bundle`), so `dsh plugin add`
-inserts its loader row automatically.
+Restart `dsh web` and refresh the page (web), or reopen the client (desktop): a
+**Task board** entry appears in the sidebar. It is a **bundle** (`dsh.bundle`), so
+`dsh plugin add` inserts its loader row automatically.
 
 ## Using it
 

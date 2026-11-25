@@ -40,11 +40,14 @@ bundle 插件：增加一块 **任务看板**——多列看板，每个任务**
 ## 安装
 
 ```sh
+# 网页版
 dsh plugin --profile web add dsh-project-tasks
+# 桌面版
+dsh plugin --profile desktop add dsh-project-tasks
 ```
 
-重启 `dsh web`（或重开 GUI）并刷新页面，侧边栏出现 **任务看板** 入口。它是 **bundle**
-（`dsh.bundle`），`dsh plugin add` 会自动插入 Loader 行。
+网页版装完重启 `dsh web` 并刷新页面，桌面版装完重开客户端，侧边栏出现 **任务看板** 入口。
+它是 **bundle**（`dsh.bundle`），`dsh plugin add` 会自动插入 Loader 行。
 
 ## 使用
 
