@@ -178,9 +178,9 @@ function resolveProject(store: TaskStore, arg: string): string {
       if (!store.autoClaim) return
       void (async () => {
         // Reclaim: release in_progress tasks whose owning session no longer exists
-        // (e.g. the client/host restarted and the session is gone) back to ready,
-        // so they aren't stranded "in progress" forever. Live sessions (running or
-        // idle) are left alone — a turn can be idle between steps.
+        // (e.g. after a restart the session was removed). Only truly-missing
+        // sessions are reclaimed — a live/idle session is left alone, and same-
+        // session serialization is handled in dispatch via `occupiedByOther`.
         try {
           const controller = ctx.get('sessionController') as
             | { list(r: Record<string, never>, s: AbortSignal): Promise<{ items: readonly { sessionId: string }[] }> }
@@ -226,6 +226,10 @@ async function dispatchTask(ctx: Context, store: TaskStore, task: TaskDto): Prom
   if (controller === undefined) return
   const norm = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '')
   const wanted = norm(task.project)
+  // A session is "busy" when another in_progress task already owns it — same session
+  // runs one task at a time (serial), so other tasks wait instead of queueing prompts.
+  const occupiedByOther = (sid: string): boolean =>
+    store.list({ statuses: ['in_progress'] }).some(t => t.id !== task.id && t.claimedBy?.sessionId === sid)
   try {
     let sessionId: string | undefined
     // Only claim/dispatch when we have an IDLE session — a busy session would just
@@ -236,15 +240,15 @@ async function dispatchTask(ctx: Context, store: TaskStore, task: TaskDto): Prom
       const target = listed.items.find(item => item.sessionId === task.reuseSessionId)
       if (target === undefined) {
         // Reused session no longer exists — fall back to a fresh session.
-      } else if (target.running === true) {
-        return // busy: keep the task ready, don't queue
+      } else if (target.running === true || occupiedByOther(task.reuseSessionId)) {
+        return // busy (running or already running another task): defer, don't queue
       } else {
         sessionId = task.reuseSessionId
       }
     } else if (task.reuseIdle === true) {
       const listed = await controller.list({}, new AbortController().signal)
       const candidate = listed.items
-        .filter(item => item.blank !== true && item.running !== true && item.parentSessionId === undefined && item.cwd !== undefined && norm(item.cwd) === wanted)
+        .filter(item => item.blank !== true && item.running !== true && item.parentSessionId === undefined && item.cwd !== undefined && norm(item.cwd) === wanted && !occupiedByOther(item.sessionId))
         .at(0)
       if (candidate === undefined) {
         // No idle session in the project right now — defer, don't spawn a new one
