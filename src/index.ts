@@ -189,7 +189,9 @@ function resolveProject(store: TaskStore, arg: string): string {
             const live = new Set((await controller.list({}, new AbortController().signal)).items.map(i => i.sessionId))
             for (const task of store.list({ statuses: ['in_progress'] })) {
               const owner = task.claimedBy?.sessionId
-              if (owner !== undefined && !live.has(owner)) {
+              // Reclaim if the owning session is gone, or there is no owner at all
+              // (a stranded in_progress task can never be worked by anyone).
+              if (owner === undefined || !live.has(owner)) {
                 await store.release(task.id).catch(() => {})
               }
             }

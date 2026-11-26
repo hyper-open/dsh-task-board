@@ -204,9 +204,10 @@ export class TaskStore {
     return this.update(id, { status: 'done' }, now)
   }
 
-  /** Human rejection of a review: back to `in_progress` (clears the claim owner). */
+  /** Human rejection of a review: back to `ready` so it can be re-picked (clears owner). */
+  /** Reject a review: send it back to "ready" so it can be picked up again. */
   async reject(id: string, now = Date.now()): Promise<TaskDto> {
-    return this.update(id, { status: 'in_progress', claimedBy: undefined } as Record<string, unknown>, now)
+    return this.update(id, { status: 'ready', claimedBy: null } as unknown as Record<string, unknown>, now)
   }
 
   /** Block a task, remembering the state to restore. */
