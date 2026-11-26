@@ -207,23 +207,30 @@ async function dispatchTask(ctx: Context, store: TaskStore, task: TaskDto): Prom
   const wanted = norm(task.project)
   try {
     let sessionId: string | undefined
-    // Per-task session strategy:
-    // - reuse with an explicit reuseSessionId -> continue that exact session
-    // - reuseIdle -> pick an idle session in the project
-    // - otherwise -> create a new session
+    // Only claim/dispatch when we have an IDLE session — a busy session would just
+    // queue the prompt. When the chosen session is busy we defer (return without
+    // claiming) so the task stays `ready` and the next poll retries.
     if (task.sessionMode === 'reuse' && task.reuseSessionId !== undefined && task.reuseSessionId !== '') {
-      try {
-        const listed = await controller.list({}, new AbortController().signal)
-        if (listed.items.some(item => item.sessionId === task.reuseSessionId)) sessionId = task.reuseSessionId
-      } catch { /* fall through */ }
+      const listed = await controller.list({}, new AbortController().signal)
+      const target = listed.items.find(item => item.sessionId === task.reuseSessionId)
+      if (target === undefined) {
+        // Reused session no longer exists — fall back to a fresh session.
+      } else if (target.running === true) {
+        return // busy: keep the task ready, don't queue
+      } else {
+        sessionId = task.reuseSessionId
+      }
     } else if (task.reuseIdle === true) {
-      try {
-        const listed = await controller.list({}, new AbortController().signal)
-        const candidate = listed.items
-          .filter(item => item.blank !== true && item.running !== true && item.parentSessionId === undefined && item.cwd !== undefined && norm(item.cwd) === wanted)
-          .at(0)
-        if (candidate !== undefined) sessionId = candidate.sessionId
-      } catch { /* fall through to a fresh session */ }
+      const listed = await controller.list({}, new AbortController().signal)
+      const candidate = listed.items
+        .filter(item => item.blank !== true && item.running !== true && item.parentSessionId === undefined && item.cwd !== undefined && norm(item.cwd) === wanted)
+        .at(0)
+      if (candidate === undefined) {
+        // No idle session in the project right now — defer, don't spawn a new one
+        // (reuseIdle means "only reuse an idle session"), so the task stays ready.
+        return
+      }
+      sessionId = candidate.sessionId
     }
     if (sessionId === undefined) {
       const registry = ctx.get('workspaceRegistry') as { list(): { id: string; path: string }[] } | undefined
