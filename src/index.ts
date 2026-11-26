@@ -176,11 +176,32 @@ function resolveProject(store: TaskStore, arg: string): string {
   ctx.effect(() => {
     const timer = setInterval(() => {
       if (!store.autoClaim) return
-      for (const task of store.list({ statuses: ['ready'] })) {
-        if (dispatching.has(task.id)) continue
-        dispatching.add(task.id)
-        void dispatchTask(ctx, store, task).finally(() => { dispatching.delete(task.id) })
-      }
+      void (async () => {
+        // Reclaim: release in_progress tasks whose owning session no longer exists
+        // (e.g. the client/host restarted and the session is gone) back to ready,
+        // so they aren't stranded "in progress" forever. Live sessions (running or
+        // idle) are left alone — a turn can be idle between steps.
+        try {
+          const controller = ctx.get('sessionController') as
+            | { list(r: Record<string, never>, s: AbortSignal): Promise<{ items: readonly { sessionId: string }[] }> }
+            | undefined
+          if (controller !== undefined) {
+            const live = new Set((await controller.list({}, new AbortController().signal)).items.map(i => i.sessionId))
+            for (const task of store.list({ statuses: ['in_progress'] })) {
+              const owner = task.claimedBy?.sessionId
+              if (owner !== undefined && !live.has(owner)) {
+                await store.release(task.id).catch(() => {})
+              }
+            }
+          }
+        } catch { /* reclaim is best-effort */ }
+        // Dispatch: pick up ready tasks (idle-checked per strategy).
+        for (const task of store.list({ statuses: ['ready'] })) {
+          if (dispatching.has(task.id)) continue
+          dispatching.add(task.id)
+          void dispatchTask(ctx, store, task).finally(() => { dispatching.delete(task.id) })
+        }
+      })()
     }, 15_000)
     timer.unref?.()
     return () => { clearInterval(timer) }

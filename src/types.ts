@@ -110,7 +110,7 @@ export interface UpdateTaskBody {
   readonly doneFiles?: string[]
   readonly blockedReason?: string
   /** Optional lifecycle action that overrides a plain status patch. */
-  readonly action?: 'start' | 'claim' | 'verify' | 'reject' | 'block' | 'unblock' | 'archive' | 'unarchive'
+  readonly action?: 'start' | 'claim' | 'verify' | 'reject' | 'block' | 'unblock' | 'release' | 'archive' | 'unarchive'
 }
 
 /** Delete-task request body. */

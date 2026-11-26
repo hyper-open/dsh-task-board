@@ -153,7 +153,12 @@ export class TaskStore {
     // Drop keys explicitly set to undefined so the durable record never stores
     // an `undefined` for an optional field (matches exactOptionalPropertyTypes).
     const clean: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(patch)) if (value !== undefined) clean[key] = value
+    const removals: string[] = []
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) continue
+      if (value === null) { removals.push(key); continue }   // null = delete the field
+      clean[key] = value
+    }
     const merged: Record<string, unknown> = {
       ...current,
       ...clean,
@@ -163,6 +168,7 @@ export class TaskStore {
       updatedAt: now,
     }
     if (clearingBlock) { delete merged['blockedFrom']; delete merged['blockedReason'] }
+    for (const key of removals) delete merged[key]
     const next = merged as unknown as Task
     await this.table.put(id, next)
     this.emit()
@@ -213,6 +219,14 @@ export class TaskStore {
   }
 
   /** Unblock a task, restoring the state it was blocked from. */
+  /** Release an in_progress task back to ready (clears the claiming session). */
+  async release(id: string, now = Date.now()): Promise<TaskDto> {
+    const current = this.get(id)
+    if (current === undefined) throw new Error(`task not found: ${id}`)
+    if (current.status !== 'in_progress') return current
+    return this.update(id, { status: 'ready', claimedBy: null } as unknown as Record<string, unknown>, now)
+  }
+
   async unblock(id: string, now = Date.now()): Promise<TaskDto> {
     const current = this.get(id)
     if (current === undefined) throw new Error(`task not found: ${id}`)

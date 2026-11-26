@@ -118,6 +118,7 @@ export function registerTaskBoardRoutes(ctx: Context, store: TaskStore): () => v
       else if (action === 'archive') task = await store.archive(id)
       else if (action === 'unarchive') task = await store.unarchive(id)
       else if (action === 'unblock') task = await store.unblock(id)
+      else if (action === 'release') task = await store.release(id)
       else task = await store.update(id, patch)
       json(res, 200, { ok: true, task })
     } catch (error) {

@@ -325,7 +325,7 @@ function TaskCard(props: {
   readonly now: number
   readonly confirming: boolean
   readonly t: (k: TaskBoardKey, p?: Record<string, string | number>) => string
-  readonly onAction: (action: 'start' | 'verify' | 'reject' | 'block' | 'unblock' | 'archive' | 'unarchive') => void
+  readonly onAction: (action: 'start' | 'verify' | 'reject' | 'block' | 'unblock' | 'release' | 'archive' | 'unarchive') => void
   readonly onStatus: (status: TaskStatus) => void
   readonly onDelete: () => void
   readonly onSave: (patch: { title: string; description?: string; priority: TaskPriority; sessionMode?: 'new' | 'reuse'; reuseSessionId?: string }) => void
@@ -357,7 +357,7 @@ function TaskCard(props: {
       actions = [btn(t('act.start'), () => { onAction('start') }, css.actionPrimary)]
       break
     case 'in_progress':
-      actions = [btn(t('act.complete'), () => { onStatus('review') }, css.actionPrimary)]
+      actions = [btn(t('act.complete'), () => { onStatus('review') }, css.actionPrimary), btn(t('act.release'), () => { onAction('release') })]
       break
     case 'review':
       actions = [btn(t('act.verify'), () => { onAction('verify') }, css.actionPrimary), btn(t('act.reject'), () => { onAction('reject') })]
