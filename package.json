@@ -1,7 +1,7 @@
 {
   "name": "dsh-project-tasks",
   "description": "Project task board for DSH: create tasks that belong to a project (workspace), let an agent pull a project's pending tasks, execute them, and mark them done — a three-column kanban (Todo / In progress / Done) with a host-authoritative task ledger and task_board_* agent tools.",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "license": "MIT",
   "author": "hyper",
